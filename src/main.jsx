@@ -37,6 +37,8 @@ const todayKey = new Date().toISOString().slice(0, 10);
 const graceDays = 14;
 const storeKey = "ledgerlane-store";
 const accountKey = "ledgerlane-account";
+const authTokenKey = "pos-inc-auth-token";
+const apiUrl = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 
 const rolePermissions = {
   owner: ["checkout", "discount", "refund", "inventory", "products", "customers", "reports", "settings", "billing", "backup", "users"],
@@ -157,6 +159,8 @@ function App() {
   const [productDraft, setProductDraft] = useState({ name: "", sku: "", category: "", price: "", cost: "", stock: "", reorder: "" });
   const [customerDraft, setCustomerDraft] = useState({ name: "", phone: "", email: "" });
   const [accountDraft, setAccountDraft] = useState({ businessName: "", ownerName: "", email: "", plan: "pro" });
+  const [accountPassword, setAccountPassword] = useState("");
+  const [isActivating, setIsActivating] = useState(false);
   const [editingProductId, setEditingProductId] = useState("");
   const [productEditDraft, setProductEditDraft] = useState(null);
   const [editingCustomerId, setEditingCustomerId] = useState("");
@@ -216,27 +220,57 @@ function App() {
     window.setTimeout(() => setNotice(""), 2200);
   }
 
-  function finishOnboarding(event) {
+  async function finishOnboarding(event) {
     event.preventDefault();
     if (!accountDraft.businessName || !accountDraft.email) return;
-    const now = new Date().toISOString();
-    setAccount({
-      id: `acct-${Date.now()}`,
-      businessName: accountDraft.businessName,
-      ownerName: accountDraft.ownerName || "Owner",
-      email: accountDraft.email,
-      plan: accountDraft.plan,
-      status: "trial",
-      trialEndsAt: addDays(new Date(), 14).toISOString(),
-      licenseKey: createLicenseKey(accountDraft.businessName),
-      lastVerifiedAt: now,
-      createdAt: now
-    });
-    setStore((current) => ({
-      ...current,
-      settings: { ...current.settings, storeName: accountDraft.businessName }
-    }));
-    flash("Workspace activated.");
+    if (!accountPassword || accountPassword.length < 8) return flash("Password must be at least 8 characters.");
+    setIsActivating(true);
+    try {
+      const register = await apiRequest("/api/auth/register", {
+        method: "POST",
+        body: {
+          businessName: accountDraft.businessName,
+          ownerName: accountDraft.ownerName || "Owner",
+          email: accountDraft.email,
+          password: accountPassword,
+          plan: accountDraft.plan
+        }
+      });
+      localStorage.setItem(authTokenKey, register.token);
+
+      const checkout = await apiRequest("/api/paypal/create-subscription", {
+        method: "POST",
+        token: register.token,
+        body: { plan: accountDraft.plan }
+      });
+
+      if (checkout.approveLink) {
+        window.location.href = checkout.approveLink;
+        return;
+      }
+
+      const now = new Date().toISOString();
+      setAccount({
+        id: register.user.businessId,
+        businessName: accountDraft.businessName,
+        ownerName: accountDraft.ownerName || "Owner",
+        email: accountDraft.email,
+        plan: accountDraft.plan,
+        status: "trial",
+        trialEndsAt: addDays(new Date(), 14).toISOString(),
+        licenseKey: createLicenseKey(accountDraft.businessName),
+        lastVerifiedAt: now,
+        createdAt: now
+      });
+      setStore((current) => ({
+        ...current,
+        settings: { ...current.settings, storeName: accountDraft.businessName }
+      }));
+    } catch (error) {
+      flash(error.message || "Could not start PayPal checkout.");
+    } finally {
+      setIsActivating(false);
+    }
   }
 
   function verifyLicense() {
@@ -582,6 +616,9 @@ function App() {
             <label className="field">Email
               <input type="email" value={accountDraft.email} onChange={(event) => setAccountDraft({ ...accountDraft, email: event.target.value })} />
             </label>
+            <label className="field">Password
+              <input type="password" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
+            </label>
             <div className="plan-picker">
               {Object.entries(plans).map(([key, plan]) => (
                 <button type="button" className={accountDraft.plan === key ? "plan-option selected" : "plan-option"} key={key} onClick={() => setAccountDraft({ ...accountDraft, plan: key })}>
@@ -590,7 +627,7 @@ function App() {
                 </button>
               ))}
             </div>
-            <button className="primary wide" type="submit">Start Trial</button>
+            <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Opening PayPal..." : "Start 14-Day Trial"}</button>
           </form>
         </section>
       </main>
@@ -1002,6 +1039,22 @@ function addDays(date, days) {
   const copy = new Date(date);
   copy.setDate(copy.getDate() + days);
   return copy;
+}
+
+async function apiRequest(path, { method = "GET", token, body } = {}) {
+  const response = await fetch(`${apiUrl}${path}`, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || "Request failed");
+  }
+  return payload;
 }
 
 function downloadFile(filename, content, type) {

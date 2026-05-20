@@ -11,6 +11,12 @@ npm run dev
 
 Open `http://127.0.0.1:5173`.
 
+Frontend environment variable for deployed builds:
+
+```env
+VITE_API_URL=https://pos-inc.onrender.com
+```
+
 ## Run Backend
 
 ```bash
