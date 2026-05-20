@@ -18,7 +18,8 @@ writeData(readData());
 
 const app = express();
 const port = Number(process.env.PORT || 4000);
-const frontendUrl = process.env.FRONTEND_URL || "http://127.0.0.1:5173";
+const rawFrontendUrl = process.env.FRONTEND_URL || "http://127.0.0.1:5173";
+const frontendUrl = rawFrontendUrl.endsWith("/") ? rawFrontendUrl.slice(0, -1) : rawFrontendUrl;
 
 app.use(helmet());
 app.use(cors({ origin: frontendUrl, credentials: true }));

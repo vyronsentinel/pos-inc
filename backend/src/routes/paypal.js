@@ -57,26 +57,29 @@ paypalRouter.post("/create-subscription", requireAuth, async (req, res) => {
   const planId = planIds[plan];
   if (!planId) return res.status(400).json({ error: `Missing PayPal subscription plan ID for ${plan}. Payment links cannot auto-charge after a 14-day trial.` });
 
-  try {
-    const accessToken = await getPayPalAccessToken();
-    const response = await fetch(`${paypalBaseUrl}/v1/billing/subscriptions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-        Prefer: "return=representation"
-      },
-      body: JSON.stringify({
-        plan_id: planId,
-        custom_id: req.businessId,
-        application_context: {
-          brand_name: "POS inc",
-          user_action: "SUBSCRIBE_NOW",
-          return_url: `${process.env.FRONTEND_URL}/?paypal=success`,
-          cancel_url: `${process.env.FRONTEND_URL}/?paypal=cancel`
-        }
-      })
-    });
+    const rawFrontendUrl = process.env.FRONTEND_URL || "http://127.0.0.1:5173";
+    const frontendUrl = rawFrontendUrl.endsWith("/") ? rawFrontendUrl.slice(0, -1) : rawFrontendUrl;
+
+    try {
+      const accessToken = await getPayPalAccessToken();
+      const response = await fetch(`${paypalBaseUrl}/v1/billing/subscriptions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+          Prefer: "return=representation"
+        },
+        body: JSON.stringify({
+          plan_id: planId,
+          custom_id: req.businessId,
+          application_context: {
+            brand_name: "POS inc",
+            user_action: "SUBSCRIBE_NOW",
+            return_url: `${frontendUrl}/?paypal=success`,
+            cancel_url: `${frontendUrl}/?paypal=cancel`
+          }
+        })
+      });
     const payload = await response.json();
     if (!response.ok) return res.status(response.status).json(payload);
     const approveLink = payload.links?.find((link) => link.rel === "approve")?.href;

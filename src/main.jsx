@@ -182,6 +182,16 @@ function App() {
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("paypal") === "success") {
+      flash("Subscription activated successfully via PayPal!");
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (params.get("paypal") === "cancel") {
+      flash("PayPal subscription setup was canceled.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
     return () => {
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
@@ -222,7 +232,8 @@ function App() {
 
   async function finishOnboarding(event) {
     event.preventDefault();
-    if (!accountDraft.businessName || !accountDraft.email) return;
+    if (!accountDraft.businessName) return flash("Business name is required.");
+    if (!accountDraft.email) return flash("Email is required.");
     if (!accountPassword || accountPassword.length < 8) return flash("Password must be at least 8 characters.");
     setIsActivating(true);
     try {
@@ -244,13 +255,8 @@ function App() {
         body: { plan: accountDraft.plan }
       });
 
-      if (checkout.approveLink) {
-        window.location.href = checkout.approveLink;
-        return;
-      }
-
       const now = new Date().toISOString();
-      setAccount({
+      const newAccount = {
         id: register.user.businessId,
         businessName: accountDraft.businessName,
         ownerName: accountDraft.ownerName || "Owner",
@@ -261,11 +267,25 @@ function App() {
         licenseKey: createLicenseKey(accountDraft.businessName),
         lastVerifiedAt: now,
         createdAt: now
-      });
+      };
+
+      setAccount(newAccount);
       setStore((current) => ({
         ...current,
         settings: { ...current.settings, storeName: accountDraft.businessName }
       }));
+
+      // Persist state synchronously before redirecting to prevent returning to an empty onboarding screen
+      localStorage.setItem(accountKey, JSON.stringify(newAccount));
+      localStorage.setItem(storeKey, JSON.stringify({
+        ...store,
+        settings: { ...store.settings, storeName: accountDraft.businessName }
+      }));
+
+      if (checkout.approveLink) {
+        window.location.href = checkout.approveLink;
+        return;
+      }
     } catch (error) {
       flash(error.message || "Could not start PayPal checkout.");
     } finally {
@@ -608,16 +628,16 @@ function App() {
           </div>
           <form className="form-grid" onSubmit={finishOnboarding}>
             <label className="field">Business Name
-              <input value={accountDraft.businessName} onChange={(event) => setAccountDraft({ ...accountDraft, businessName: event.target.value })} />
+              <input required value={accountDraft.businessName} onChange={(event) => setAccountDraft({ ...accountDraft, businessName: event.target.value })} />
             </label>
             <label className="field">Owner Name
               <input value={accountDraft.ownerName} onChange={(event) => setAccountDraft({ ...accountDraft, ownerName: event.target.value })} />
             </label>
             <label className="field">Email
-              <input type="email" value={accountDraft.email} onChange={(event) => setAccountDraft({ ...accountDraft, email: event.target.value })} />
+              <input type="email" required value={accountDraft.email} onChange={(event) => setAccountDraft({ ...accountDraft, email: event.target.value })} />
             </label>
             <label className="field">Password
-              <input type="password" value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
+              <input type="password" required minLength={8} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
             </label>
             <div className="plan-picker">
               {Object.entries(plans).map(([key, plan]) => (
