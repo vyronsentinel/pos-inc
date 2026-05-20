@@ -1,0 +1,9 @@
+{
+  "name": "POS inc",
+  "short_name": "POS inc",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f4f1ea",
+  "theme_color": "#101820",
+  "description": "Offline-first point of sale for small businesses."
+}
