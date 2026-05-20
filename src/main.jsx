@@ -231,12 +231,14 @@ function App() {
   }
 
   async function finishOnboarding(event) {
+    console.log("finishOnboarding triggered!");
     event.preventDefault();
     if (!accountDraft.businessName) return flash("Business name is required.");
     if (!accountDraft.email) return flash("Email is required.");
     if (!accountPassword || accountPassword.length < 8) return flash("Password must be at least 8 characters.");
     setIsActivating(true);
     try {
+      console.log("Sending registration request for:", accountDraft.email);
       const register = await apiRequest("/api/auth/register", {
         method: "POST",
         body: {
@@ -247,13 +249,16 @@ function App() {
           plan: accountDraft.plan
         }
       });
+      console.log("Registration successful! Token:", register.token);
       localStorage.setItem(authTokenKey, register.token);
 
+      console.log("Creating subscription on backend for plan:", accountDraft.plan);
       const checkout = await apiRequest("/api/paypal/create-subscription", {
         method: "POST",
         token: register.token,
         body: { plan: accountDraft.plan }
       });
+      console.log("PayPal checkout response received:", checkout);
 
       const now = new Date().toISOString();
       const newAccount = {
@@ -269,6 +274,7 @@ function App() {
         createdAt: now
       };
 
+      console.log("Setting local account state...");
       setAccount(newAccount);
       setStore((current) => ({
         ...current,
@@ -276,6 +282,7 @@ function App() {
       }));
 
       // Persist state synchronously before redirecting to prevent returning to an empty onboarding screen
+      console.log("Persisting state to localStorage...");
       localStorage.setItem(accountKey, JSON.stringify(newAccount));
       localStorage.setItem(storeKey, JSON.stringify({
         ...store,
@@ -283,13 +290,18 @@ function App() {
       }));
 
       if (checkout.approveLink) {
+        console.log("Redirecting user to PayPal approval link:", checkout.approveLink);
         window.location.href = checkout.approveLink;
         return;
+      } else {
+        console.warn("No approveLink returned in checkout payload!");
       }
     } catch (error) {
+      console.error("Caught error in finishOnboarding:", error);
       flash(error.message || "Could not start PayPal checkout.");
     } finally {
       setIsActivating(false);
+      console.log("finishOnboarding completed.");
     }
   }
 
