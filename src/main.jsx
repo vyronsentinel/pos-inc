@@ -417,9 +417,43 @@ function App() {
       setPendingActivation(null);
       flash("Signed in successfully.");
     } catch (error) {
+      if (error.status === 401 && await recoverLocalLicensedAccount()) {
+        return;
+      }
       flash(error.message || "Could not sign in.");
     } finally {
       setIsActivating(false);
+    }
+  }
+
+  async function recoverLocalLicensedAccount() {
+    const localAccount = loadAccount();
+    const licenseKey = localAccount?.licenseKey?.trim().toUpperCase();
+    if (!localAccount || !licensePlans[licenseKey]) return false;
+    if (localAccount.email.toLowerCase() !== loginDraft.email.trim().toLowerCase()) return false;
+
+    try {
+      const register = await apiRequest("/api/auth/register", {
+        method: "POST",
+        body: {
+          businessName: localAccount.businessName,
+          ownerName: localAccount.ownerName || "Owner",
+          email: localAccount.email,
+          password: loginDraft.password,
+          plan: localAccount.plan,
+          licenseKey
+        }
+      });
+      localStorage.setItem(authTokenKey, register.token);
+      activateBusiness(register.business, register.user, licenseKey);
+      flash("Licensed account restored. You can sign in with this password next time.");
+      return true;
+    } catch (registerError) {
+      if (registerError.status === 409) {
+        flash("This email exists on the server. Check the password or reset the account.");
+        return true;
+      }
+      throw registerError;
     }
   }
 
