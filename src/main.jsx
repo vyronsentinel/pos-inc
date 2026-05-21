@@ -179,6 +179,7 @@ function App() {
   const [loginDraft, setLoginDraft] = useState({ email: "", password: "" });
   const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
   const [resetPasswordDraft, setResetPasswordDraft] = useState({ password: "", confirmPassword: "" });
+  const [authFeedback, setAuthFeedback] = useState("");
   const [accountPassword, setAccountPassword] = useState("");
   const [licenseKeyDraft, setLicenseKeyDraft] = useState("");
   const [pendingLicenseKeyDraft, setPendingLicenseKeyDraft] = useState("");
@@ -377,6 +378,7 @@ function App() {
 
   async function finishLogin(event) {
     event.preventDefault();
+    setAuthFeedback("");
     if (!loginDraft.email) return flash("Email is required.");
     if (!loginDraft.password) return flash("Password is required.");
     setIsActivating(true);
@@ -436,6 +438,7 @@ function App() {
 
   async function requestPasswordReset(event) {
     event.preventDefault();
+    setAuthFeedback("");
     if (!forgotPasswordEmail) return flash("Email is required.");
     setIsActivating(true);
 
@@ -445,15 +448,14 @@ function App() {
         body: { email: forgotPasswordEmail }
       });
       if (result.delivery === "failed") {
-        flash("Reset email failed. Check backend SMTP settings.");
+        setAuthFeedback("Reset email failed. Check the email service settings and Brevo logs.");
       } else if (result.delivery === "not_configured") {
-        flash("SMTP is not configured on the backend.");
+        setAuthFeedback("Email sending is not configured. Add BREVO_API_KEY and MAIL_FROM to Supabase function secrets.");
       } else {
-        flash("If that email exists, a reset link has been sent.");
-        setAuthMode("login");
+        setAuthFeedback("If that email exists, a reset link has been sent. Check your inbox and spam folder.");
       }
     } catch (error) {
-      flash(error.message || "Could not request password reset.");
+      setAuthFeedback(error.message || "Could not request password reset.");
     } finally {
       setIsActivating(false);
     }
@@ -461,6 +463,7 @@ function App() {
 
   async function finishPasswordReset(event) {
     event.preventDefault();
+    setAuthFeedback("");
     if (!resetPasswordDraft.password || resetPasswordDraft.password.length < 8) return flash("Password must be at least 8 characters.");
     if (resetPasswordDraft.password !== resetPasswordDraft.confirmPassword) return flash("Passwords do not match.");
     setIsActivating(true);
@@ -474,9 +477,9 @@ function App() {
       setResetPasswordDraft({ password: "", confirmPassword: "" });
       window.history.replaceState({}, document.title, window.location.pathname);
       setAuthMode("login");
-      flash("Password updated. Please sign in.");
+      setAuthFeedback("Password updated. Please sign in.");
     } catch (error) {
-      flash(error.message || "Could not reset password.");
+      setAuthFeedback(error.message || "Could not reset password.");
     } finally {
       setIsActivating(false);
     }
@@ -977,6 +980,7 @@ function App() {
                 <input type="email" required autoComplete="email" value={forgotPasswordEmail} onChange={(event) => setForgotPasswordEmail(event.target.value)} />
               </label>
               <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Sending..." : "Send Reset Link"}</button>
+              {authFeedback && <p className="auth-feedback">{authFeedback}</p>}
               <button className="secondary wide" type="button" onClick={() => setAuthMode("login")}>Back to Sign In</button>
             </form>
           ) : authMode === "reset" ? (
@@ -988,6 +992,7 @@ function App() {
                 <input type="password" required autoComplete="new-password" minLength={8} value={resetPasswordDraft.confirmPassword} onChange={(event) => setResetPasswordDraft({ ...resetPasswordDraft, confirmPassword: event.target.value })} />
               </label>
               <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Saving..." : "Update Password"}</button>
+              {authFeedback && <p className="auth-feedback">{authFeedback}</p>}
             </form>
           ) : (
             <form className="form-grid" onSubmit={finishOnboarding}>

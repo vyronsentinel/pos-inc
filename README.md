@@ -11,10 +11,10 @@ npm run dev
 
 Open `http://127.0.0.1:5173`.
 
-Frontend environment variable for deployed builds:
+Frontend environment variable for deployed builds when using Supabase Edge Functions:
 
 ```env
-VITE_API_URL=https://pos-inc.onrender.com
+VITE_API_URL=https://rmpjjfuyjpfuwwhivedx.supabase.co/functions/v1
 ```
 
 ## Run Backend
@@ -41,14 +41,43 @@ Useful endpoints:
 - `POST /api/paypal/checkout-link`
 - `POST /api/paypal/create-subscription`
 
-The backend stores data in `backend/data/pos-inc.json` by default for local development. For Supabase, set `DATABASE_URL` on the backend service to the Supabase Postgres URI:
+The legacy Express backend stores data in `backend/data/pos-inc.json` by default for local development. For hosted Supabase-only deployment, use the Edge Function in `supabase/functions/api` instead of hosting `backend/`.
+
+## Supabase Edge Function Backend
+
+The Supabase backend is a single Edge Function named `api`. It preserves the existing frontend API paths, so set Vercel `VITE_API_URL` to:
 
 ```env
-DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.rmpjjfuyjpfuwwhivedx.supabase.co:5432/postgres
-DATABASE_SSL=true
+https://rmpjjfuyjpfuwwhivedx.supabase.co/functions/v1
 ```
 
-You can find the URI in Supabase under Project Settings > Database > Connection string > URI. The backend creates the required tables on startup.
+Apply the database schema in `supabase/migrations/0001_pos_inc_schema.sql` through the Supabase SQL editor or CLI.
+
+Set these Supabase Edge Function secrets:
+
+```env
+SUPABASE_URL=https://rmpjjfuyjpfuwwhivedx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=...
+JWT_SECRET=...
+LICENSE_SECRET=...
+FRONTEND_URL=https://pos-inc.vercel.app
+BREVO_API_KEY=...
+MAIL_FROM=POS inc <posinc.noreply@gmail.com>
+PAYPAL_ENVIRONMENT=live
+PAYPAL_CLIENT_ID=...
+PAYPAL_CLIENT_SECRET=...
+PAYPAL_STARTER_PLAN_ID=...
+PAYPAL_PRO_PLAN_ID=...
+PAYPAL_BUSINESS_PLAN_ID=...
+```
+
+Deploy with the Supabase CLI:
+
+```bash
+supabase functions deploy api --project-ref rmpjjfuyjpfuwwhivedx
+```
+
+Forgot-password emails use Brevo's HTTP API in the Edge Function, so use `BREVO_API_KEY` rather than SMTP variables for Supabase-only deployment.
 
 Current subscription pricing:
 

@@ -139,6 +139,16 @@ button {
   height: 38px;
 }
 
+.auth-feedback {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.35;
+  padding: 10px 12px;
+  background: var(--surface-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .sidebar {
   background: linear-gradient(180deg, #071831 0%, #0a203e 100%);
   color: #eef8fa;
