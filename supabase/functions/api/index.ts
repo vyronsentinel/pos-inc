@@ -68,9 +68,8 @@ Deno.serve(async (req) => {
     if (path === "/paypal/mock-activate" && req.method === "POST") return mockActivate(auth, body);
 
     return json({ error: `Route not found: ${req.method} ${path}` }, 404);
-  } catch (error: any) {
-    const status = error.status || 500;
-    return json({ error: error.message || "Internal server error" }, status);
+  } catch (error: unknown) {
+    return errorJson(error);
   }
 });
 
@@ -407,6 +406,15 @@ async function readJson(req: Request) {
 }
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+function errorJson(error: unknown) {
+  const status = typeof error === "object" && error && "status" in error && typeof error.status === "number"
+    ? error.status
+    : 500;
+  const message = typeof error === "object" && error && "message" in error && typeof error.message === "string"
+    ? error.message
+    : "Internal server error";
+  return json({ error: message }, status);
 }
 function httpError(message: string, status = 400) {
   const error = new Error(message) as any;
