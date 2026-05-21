@@ -172,12 +172,12 @@ button {
 }
 
 .brand-logo.brand-logo-large {
-  width: clamp(220px, 22vw, 340px);
+  width: clamp(112px, 10vw, 160px);
   height: auto;
   background: transparent;
   border-radius: 0;
   padding: 0;
-  filter: drop-shadow(0 14px 24px rgba(8, 127, 143, 0.24));
+  filter: drop-shadow(0 9px 16px rgba(8, 127, 143, 0.2));
 }
 
 .large-brand {
