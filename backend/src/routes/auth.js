@@ -40,7 +40,7 @@ authRouter.post("/register", (req, res) => {
       name: input.businessName,
       ownerEmail: input.email,
       plan: input.plan,
-      subscriptionStatus: "trial",
+      subscriptionStatus: "pending",
       trialEndsAt: addDays(new Date(), 14).toISOString(),
       createdAt: now,
       updatedAt: now

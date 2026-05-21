@@ -37,6 +37,7 @@ const todayKey = new Date().toISOString().slice(0, 10);
 const graceDays = 14;
 const storeKey = "ledgerlane-store";
 const accountKey = "ledgerlane-account";
+const pendingActivationKey = "ledgerlane-pending-activation";
 const authTokenKey = "pos-inc-auth-token";
 const apiUrl = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
 
@@ -131,8 +132,15 @@ function loadStore() {
 
 function loadAccount() {
   const saved = localStorage.getItem(accountKey);
-  if (saved) return JSON.parse(saved);
-  return null;
+  if (!saved) return null;
+  const parsed = JSON.parse(saved);
+  return parsed?.status === "active" ? parsed : null;
+}
+
+function loadPendingActivation() {
+  const saved = localStorage.getItem(pendingActivationKey);
+  if (!saved) return null;
+  return JSON.parse(saved);
 }
 
 function createLicenseKey(businessName) {
@@ -148,6 +156,7 @@ function daysBetween(start, end) {
 function App() {
   const [store, setStore] = useState(loadStore);
   const [account, setAccount] = useState(loadAccount);
+  const [pendingActivation, setPendingActivation] = useState(loadPendingActivation);
   const [activeView, setActiveView] = useState("checkout");
   const [query, setQuery] = useState("");
   const [cart, setCart] = useState([]);
@@ -177,6 +186,11 @@ function App() {
   }, [account]);
 
   useEffect(() => {
+    if (pendingActivation) localStorage.setItem(pendingActivationKey, JSON.stringify(pendingActivation));
+    else localStorage.removeItem(pendingActivationKey);
+  }, [pendingActivation]);
+
+  useEffect(() => {
     const online = () => setIsOnline(true);
     const offline = () => setIsOnline(false);
     window.addEventListener("online", online);
@@ -184,11 +198,15 @@ function App() {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
 
     const params = new URLSearchParams(window.location.search);
-    if (params.get("paypal") === "success") {
-      flash("Subscription activated successfully via PayPal!");
-      window.history.replaceState({}, document.title, window.location.pathname);
-    } else if (params.get("paypal") === "cancel") {
+    const paypalStatus = params.get("paypal");
+    if (paypalStatus === "cancel") {
       flash("PayPal subscription setup was canceled.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+
+    if (!account && pendingActivation) {
+      void syncPendingActivation(paypalStatus === "success");
+    } else if (paypalStatus === "success") {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
@@ -230,15 +248,56 @@ function App() {
     window.setTimeout(() => setNotice(""), 2200);
   }
 
+  async function syncPendingActivation(announce = true) {
+    const token = localStorage.getItem(authTokenKey);
+    if (!token) {
+      if (announce) flash("Missing auth token. Please restart activation.");
+      return;
+    }
+
+    try {
+      const current = await apiRequest("/api/auth/me", { token });
+      const business = current.business;
+      if (business.subscriptionStatus !== "active") {
+        if (announce) flash("Payment is still pending. Finish approval in PayPal, then return here.");
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const resolvedAccount = {
+        id: business.id,
+        businessName: business.name,
+        ownerName: current.user.name,
+        email: current.user.email,
+        plan: business.plan,
+        status: "active",
+        trialEndsAt: business.trialEndsAt,
+        licenseKey: pendingActivation?.licenseKey || createLicenseKey(business.name),
+        lastVerifiedAt: now,
+        createdAt: business.createdAt || now
+      };
+
+      setAccount(resolvedAccount);
+      setStore((currentStore) => ({
+        ...currentStore,
+        settings: { ...currentStore.settings, storeName: business.name }
+      }));
+      setPendingActivation(null);
+      if (announce) flash("Payment confirmed. Workspace unlocked.");
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } catch (error) {
+      if (announce) flash(error.message || "Could not verify payment yet.");
+    }
+  }
+
   async function finishOnboarding(event) {
-    console.log("finishOnboarding triggered!");
     event.preventDefault();
     if (!accountDraft.businessName) return flash("Business name is required.");
     if (!accountDraft.email) return flash("Email is required.");
     if (!accountPassword || accountPassword.length < 8) return flash("Password must be at least 8 characters.");
     setIsActivating(true);
+
     try {
-      console.log("Sending registration request for:", accountDraft.email);
       const register = await apiRequest("/api/auth/register", {
         method: "POST",
         body: {
@@ -249,59 +308,37 @@ function App() {
           plan: accountDraft.plan
         }
       });
-      console.log("Registration successful! Token:", register.token);
       localStorage.setItem(authTokenKey, register.token);
 
-      console.log("Creating subscription on backend for plan:", accountDraft.plan);
       const checkout = await apiRequest("/api/paypal/create-subscription", {
         method: "POST",
         token: register.token,
         body: { plan: accountDraft.plan }
       });
-      console.log("PayPal checkout response received:", checkout);
 
-      const now = new Date().toISOString();
-      const newAccount = {
-        id: register.user.businessId,
+      const activation = {
+        businessId: register.user.businessId,
         businessName: accountDraft.businessName,
         ownerName: accountDraft.ownerName || "Owner",
         email: accountDraft.email,
         plan: accountDraft.plan,
-        status: "trial",
-        trialEndsAt: addDays(new Date(), 14).toISOString(),
-        licenseKey: createLicenseKey(accountDraft.businessName),
-        lastVerifiedAt: now,
-        createdAt: now
+        licenseKey: createLicenseKey(accountDraft.businessName)
       };
 
-      console.log("Setting local account state...");
-      setAccount(newAccount);
-      setStore((current) => ({
-        ...current,
-        settings: { ...current.settings, storeName: accountDraft.businessName }
-      }));
+      setPendingActivation(activation);
 
-      // Persist state synchronously before redirecting to prevent returning to an empty onboarding screen
-      console.log("Persisting state to localStorage...");
-      localStorage.setItem(accountKey, JSON.stringify(newAccount));
       localStorage.setItem(storeKey, JSON.stringify({
         ...store,
         settings: { ...store.settings, storeName: accountDraft.businessName }
       }));
 
-      if (checkout.approveLink) {
-        console.log("Redirecting user to PayPal approval link:", checkout.approveLink);
-        window.location.href = checkout.approveLink;
-        return;
-      } else {
-        console.warn("No approveLink returned in checkout payload!");
-      }
+      if (!checkout.approveLink) throw new Error("PayPal did not return an approval link.");
+      window.location.href = checkout.approveLink;
+      return;
     } catch (error) {
-      console.error("Caught error in finishOnboarding:", error);
       flash(error.message || "Could not start PayPal checkout.");
     } finally {
       setIsActivating(false);
-      console.log("finishOnboarding completed.");
     }
   }
 
@@ -622,8 +659,12 @@ function App() {
           <div className="brand large-brand">
             <img className="brand-logo brand-logo-large" src="/POSlogo-cropped.png" alt="POS inc" />
           </div>
-          <h1>Activate a business workspace</h1>
-          <p>Set up a licensed POS workspace for this business, then open the register with local offline access and plan-based controls.</p>
+          <h1>{pendingActivation ? "Waiting for PayPal confirmation" : "Activate a business workspace"}</h1>
+          <p>
+            {pendingActivation
+              ? "Your business profile was created. Finish the PayPal approval and come back here so we can verify the payment before unlocking the workspace."
+              : "Set up a licensed POS workspace for this business, then open the register with local offline access and plan-based controls."}
+          </p>
           <div className="license-notes">
             <span><Check size={16} /> 14-day trial</span>
             <span><Check size={16} /> Local offline grace period</span>
@@ -633,34 +674,49 @@ function App() {
         <section className="panel onboarding-card">
           <div className="panel-head">
             <div>
-              <h2>Business Account</h2>
-              <p>Create the first register profile for this store.</p>
+              <h2>{pendingActivation ? "Payment pending" : "Business Account"}</h2>
+              <p>{pendingActivation ? "Do not refresh PayPal until it has completed." : "Create the first register profile for this store."}</p>
             </div>
             <Building2 size={22} />
           </div>
-          <form className="form-grid" onSubmit={finishOnboarding}>
-            <label className="field">Business Name
-              <input required value={accountDraft.businessName} onChange={(event) => setAccountDraft({ ...accountDraft, businessName: event.target.value })} />
-            </label>
-            <label className="field">Owner Name
-              <input value={accountDraft.ownerName} onChange={(event) => setAccountDraft({ ...accountDraft, ownerName: event.target.value })} />
-            </label>
-            <label className="field">Email
-              <input type="email" required value={accountDraft.email} onChange={(event) => setAccountDraft({ ...accountDraft, email: event.target.value })} />
-            </label>
-            <label className="field">Password
-              <input type="password" required minLength={8} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
-            </label>
-            <div className="plan-picker">
-              {Object.entries(plans).map(([key, plan]) => (
-                <button type="button" className={accountDraft.plan === key ? "plan-option selected" : "plan-option"} key={key} onClick={() => setAccountDraft({ ...accountDraft, plan: key })}>
-                  <strong>{plan.name}</strong>
-                  <span>{money.format(plan.price)}/mo</span>
-                </button>
-              ))}
+
+          {pendingActivation ? (
+            <div className="pending-card">
+              <strong>{pendingActivation.businessName}</strong>
+              <span>{pendingActivation.plan} plan</span>
+              <p>We are waiting for PayPal to confirm the subscription. Use the button below after approval.</p>
+              <button className="primary wide" type="button" onClick={() => syncPendingActivation(true)}>Check payment status</button>
+              <button className="secondary wide" type="button" onClick={() => {
+                setPendingActivation(null);
+                localStorage.removeItem(authTokenKey);
+                window.history.replaceState({}, document.title, window.location.pathname);
+              }}>Start over</button>
             </div>
-            <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Opening PayPal..." : "Start 14-Day Trial"}</button>
-          </form>
+          ) : (
+            <form className="form-grid" onSubmit={finishOnboarding}>
+              <label className="field">Business Name
+                <input required value={accountDraft.businessName} onChange={(event) => setAccountDraft({ ...accountDraft, businessName: event.target.value })} />
+              </label>
+              <label className="field">Owner Name
+                <input value={accountDraft.ownerName} onChange={(event) => setAccountDraft({ ...accountDraft, ownerName: event.target.value })} />
+              </label>
+              <label className="field">Email
+                <input type="email" required value={accountDraft.email} onChange={(event) => setAccountDraft({ ...accountDraft, email: event.target.value })} />
+              </label>
+              <label className="field">Password
+                <input type="password" autoComplete="current-password" required minLength={8} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
+              </label>
+              <div className="plan-picker">
+                {Object.entries(plans).map(([key, plan]) => (
+                  <button type="button" className={accountDraft.plan === key ? "plan-option selected" : "plan-option"} key={key} onClick={() => setAccountDraft({ ...accountDraft, plan: key })}>
+                    <strong>{plan.name}</strong>
+                    <span>{money.format(plan.price)}/mo</span>
+                  </button>
+                ))}
+              </div>
+              <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Opening PayPal..." : "Start 14-Day Trial"}</button>
+            </form>
+          )}
         </section>
       </main>
     );
