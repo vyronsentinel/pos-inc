@@ -40,13 +40,14 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }) {
 async function sendMail(message) {
   if (!transporter) {
     console.warn(`Email not sent because SMTP is not configured. To: ${message.to}; Subject: ${message.subject}`);
-    return { skipped: true };
+    return { sent: false, skipped: true };
   }
 
-  return transporter.sendMail({
+  const result = await transporter.sendMail({
     from: fromAddress,
     ...message
   });
+  return { sent: true, messageId: result.messageId };
 }
 
 function escapeHtml(value) {

@@ -142,6 +142,7 @@ authRouter.post("/forgot-password", async (req, res) => {
   const email = parsed.data.email.toLowerCase();
   const data = await readData();
   const user = data.users.find((item) => item.email.toLowerCase() === email && item.active);
+  let delivery = "unknown";
 
   if (user) {
     const rawToken = crypto.randomBytes(32).toString("hex");
@@ -162,14 +163,18 @@ authRouter.post("/forgot-password", async (req, res) => {
     });
 
     const frontendUrl = getFrontendUrl();
-    await sendPasswordResetEmail({
+    const mailResult = await sendPasswordResetEmail({
       to: user.email,
       name: user.name,
       resetUrl: `${frontendUrl}/?resetToken=${rawToken}`
-    }).catch((error) => console.warn(`Password reset email failed: ${error.message}`));
+    }).catch((error) => {
+      console.warn(`Password reset email failed: ${error.message}`);
+      return { sent: false, error: error.message };
+    });
+    delivery = mailResult.sent ? "sent" : mailResult.skipped ? "not_configured" : "failed";
   }
 
-  res.json({ ok: true });
+  res.json({ ok: true, delivery });
 });
 
 authRouter.post("/reset-password", async (req, res) => {

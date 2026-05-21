@@ -440,12 +440,18 @@ function App() {
     setIsActivating(true);
 
     try {
-      await apiRequest("/api/auth/forgot-password", {
+      const result = await apiRequest("/api/auth/forgot-password", {
         method: "POST",
         body: { email: forgotPasswordEmail }
       });
-      flash("If that email exists, a reset link has been sent.");
-      setAuthMode("login");
+      if (result.delivery === "failed") {
+        flash("Reset email failed. Check backend SMTP settings.");
+      } else if (result.delivery === "not_configured") {
+        flash("SMTP is not configured on the backend.");
+      } else {
+        flash("If that email exists, a reset link has been sent.");
+        setAuthMode("login");
+      }
     } catch (error) {
       flash(error.message || "Could not request password reset.");
     } finally {
@@ -916,7 +922,7 @@ function App() {
             <span><Check size={16} /> Plan-based feature access</span>
           </div>
         </section>
-        <section className="panel onboarding-card">
+        <section className={authMode === "forgot" || authMode === "reset" ? "panel onboarding-card compact-auth-card" : "panel onboarding-card"}>
           <div className="panel-head">
             <div>
               <h2>{pendingActivation ? "Payment pending" : authMode === "forgot" ? "Forgot Password" : authMode === "reset" ? "Reset Password" : authMode === "login" ? "Existing User Login" : "Business Account"}</h2>

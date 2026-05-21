@@ -122,6 +122,23 @@ button {
   backdrop-filter: none;
 }
 
+.compact-auth-card {
+  align-self: center;
+  padding: 18px;
+}
+
+.compact-auth-card .panel-head {
+  margin-bottom: 12px;
+}
+
+.compact-auth-card .form-grid {
+  gap: 10px;
+}
+
+.compact-auth-card .field input {
+  height: 38px;
+}
+
 .sidebar {
   background: linear-gradient(180deg, #071831 0%, #0a203e 100%);
   color: #eef8fa;
