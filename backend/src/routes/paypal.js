@@ -1,5 +1,5 @@
 import express from "express";
-import { mutateData, nowIso } from "../db.js";
+import { mutateData, nowIso, readData } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 
 export const paypalRouter = express.Router();
@@ -21,6 +21,11 @@ const planIds = {
 };
 
 const planKeys = new Set(["starter", "pro", "business"]);
+const licensePlans = {
+  POS2026799S: "starter",
+  POS20261299P: "pro",
+  POS20262199B: "business"
+};
 
 paypalRouter.get("/status", requireAuth, (_req, res) => {
   res.json({
@@ -55,40 +60,28 @@ paypalRouter.post("/checkout-link", requireAuth, (req, res) => {
 });
 
 paypalRouter.post("/create-subscription", requireAuth, async (req, res) => {
-  const plan = req.body?.plan || req.business.plan || "pro";
-  if (!planKeys.has(plan)) return res.status(400).json({ error: "Invalid plan" });
-  const planId = planIds[plan];
-  if (!planId) return res.status(400).json({ error: `Missing PayPal subscription plan ID for ${plan}. Payment links cannot auto-charge after a 14-day trial.` });
-
-    const rawFrontendUrl = process.env.FRONTEND_URL || "http://127.0.0.1:5173";
-    const frontendUrl = rawFrontendUrl.endsWith("/") ? rawFrontendUrl.slice(0, -1) : rawFrontendUrl;
-
-    try {
-      const accessToken = await getPayPalAccessToken();
-      const response = await fetch(`${paypalBaseUrl}/v1/billing/subscriptions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-          Prefer: "return=representation"
-        },
-        body: JSON.stringify({
-          plan_id: planId,
-          custom_id: `${req.businessId}:${plan}`,
-          application_context: {
-            brand_name: "POS inc",
-            user_action: "SUBSCRIBE_NOW",
-            return_url: `${frontendUrl}/?paypal=success`,
-            cancel_url: `${frontendUrl}/?paypal=cancel`
-          }
-        })
-      });
-    const payload = await response.json();
-    if (!response.ok) return res.status(response.status).json(payload);
-    const approveLink = payload.links?.find((link) => link.rel === "approve")?.href;
-    res.json({ plan, subscription: payload, approveLink });
+  try {
+    const checkout = await createPayPalSubscription(req.businessId, req.body?.plan || req.business.plan || "pro");
+    res.json(checkout);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+paypalRouter.post("/license-checkout", async (req, res) => {
+  const businessId = req.body?.businessId;
+  const licenseKey = String(req.body?.licenseKey || "").trim().toUpperCase();
+  if (!businessId || !licensePlans[licenseKey]) return res.status(401).json({ error: "Invalid license credentials" });
+
+  const data = await readData();
+  const business = data.businesses.find((item) => item.id === businessId && item.licenseKey === licenseKey && item.subscriptionStatus === "active");
+  if (!business) return res.status(401).json({ error: "Invalid license credentials" });
+
+  try {
+    const checkout = await createPayPalSubscription(business.id, req.body?.plan || business.plan || "pro");
+    res.json(checkout);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
   }
 });
 
@@ -150,4 +143,49 @@ async function getPayPalAccessToken() {
   const payload = await response.json();
   if (!response.ok) throw new Error(payload.error_description || "Could not get PayPal access token");
   return payload.access_token;
+}
+
+async function createPayPalSubscription(businessId, plan) {
+  if (!planKeys.has(plan)) {
+    const error = new Error("Invalid plan");
+    error.status = 400;
+    throw error;
+  }
+
+  const planId = planIds[plan];
+  if (!planId) {
+    const error = new Error(`Missing PayPal subscription plan ID for ${plan}. Payment links cannot auto-charge after a 14-day trial.`);
+    error.status = 400;
+    throw error;
+  }
+
+  const rawFrontendUrl = process.env.FRONTEND_URL || "http://127.0.0.1:5173";
+  const frontendUrl = rawFrontendUrl.endsWith("/") ? rawFrontendUrl.slice(0, -1) : rawFrontendUrl;
+  const accessToken = await getPayPalAccessToken();
+  const response = await fetch(`${paypalBaseUrl}/v1/billing/subscriptions`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      Prefer: "return=representation"
+    },
+    body: JSON.stringify({
+      plan_id: planId,
+      custom_id: `${businessId}:${plan}`,
+      application_context: {
+        brand_name: "POS inc",
+        user_action: "SUBSCRIBE_NOW",
+        return_url: `${frontendUrl}/?paypal=success`,
+        cancel_url: `${frontendUrl}/?paypal=cancel`
+      }
+    })
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    const error = new Error(payload.error_description || payload.message || "PayPal subscription failed");
+    error.status = response.status;
+    throw error;
+  }
+  const approveLink = payload.links?.find((link) => link.rel === "approve")?.href;
+  return { plan, subscription: payload, approveLink };
 }

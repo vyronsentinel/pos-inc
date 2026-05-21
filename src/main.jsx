@@ -475,20 +475,35 @@ function App() {
   async function openPlanUpgrade(plan) {
     if (planRank[plan] <= planRank[account.plan]) return;
     const token = localStorage.getItem(authTokenKey);
-    if (!token) return flash("Please sign in again before upgrading.");
     setIsActivating(true);
 
     try {
-      const checkout = await apiRequest("/api/paypal/create-subscription", {
-        method: "POST",
-        token,
-        body: { plan }
-      });
+      const checkout = token
+        ? await apiRequest("/api/paypal/create-subscription", {
+            method: "POST",
+            token,
+            body: { plan }
+          }).catch(async (error) => {
+            if (error.status !== 401 || !licensePlans[account.licenseKey]) throw error;
+            localStorage.removeItem(authTokenKey);
+            return apiRequest("/api/paypal/license-checkout", {
+              method: "POST",
+              body: { plan, businessId: account.id, licenseKey: account.licenseKey }
+            });
+          })
+        : await apiRequest("/api/paypal/license-checkout", {
+            method: "POST",
+            body: { plan, businessId: account.id, licenseKey: account.licenseKey }
+          });
       if (!checkout.approveLink) throw new Error("PayPal did not return an approval link.");
       window.open(checkout.approveLink, "_blank", "noopener,noreferrer");
       flash(`${plans[plan].name} upgrade opened in a new tab.`);
     } catch (error) {
-      flash(error.message || "Could not open PayPal upgrade.");
+      if (error.status === 401) {
+        flash("Please sign in again before upgrading.");
+      } else {
+        flash(error.message || "Could not open PayPal upgrade.");
+      }
     } finally {
       setIsActivating(false);
     }
@@ -1338,7 +1353,9 @@ async function apiRequest(path, { method = "GET", token, body } = {}) {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error || "Request failed");
+    const error = new Error(payload.error || "Request failed");
+    error.status = response.status;
+    throw error;
   }
   return payload;
 }
