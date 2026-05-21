@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon --watch src --ignore data src/server.js",
     "start": "node src/server.js",
-    "init-db": "node src/db/init.js"
+    "init-db": "node src/db/init.js",
+    "send-test-email": "node src/send-test-email.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
