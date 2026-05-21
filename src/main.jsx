@@ -450,12 +450,14 @@ function App() {
         method: "POST",
         body: { email: forgotPasswordEmail }
       });
-      if (result.delivery === "failed") {
+      if (!result.accountFound) {
+        setAuthFeedback("No active account was found for that email. Check the address or create an account.");
+      } else if (result.delivery === "failed") {
         setAuthFeedback("Reset email failed. Check the email service settings and Brevo logs.");
       } else if (result.delivery === "not_configured") {
         setAuthFeedback("Email sending is not configured. Add BREVO_API_KEY and MAIL_FROM to Supabase function secrets.");
       } else {
-        setAuthFeedback("If that email exists, a reset link has been sent. Check your inbox and spam folder.");
+        setAuthFeedback("Account found. A reset link has been sent. Check your inbox and spam folder.");
       }
     } catch (error) {
       setAuthFeedback(error.message || "Could not request password reset.");

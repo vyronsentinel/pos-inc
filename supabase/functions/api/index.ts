@@ -145,7 +145,7 @@ async function forgotPassword(input: any) {
     const result = await sendPasswordResetEmail(user.email, user.name, `${frontendUrl()}/?resetToken=${rawToken}`);
     delivery = result.sent ? "sent" : result.skipped ? "not_configured" : "failed";
   }
-  return json({ ok: true, delivery });
+  return json({ ok: true, accountFound: Boolean(user?.active), delivery });
 }
 
 async function resetPassword(input: any) {

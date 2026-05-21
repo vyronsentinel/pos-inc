@@ -174,7 +174,7 @@ authRouter.post("/forgot-password", async (req, res) => {
     delivery = mailResult.sent ? "sent" : mailResult.skipped ? "not_configured" : "failed";
   }
 
-  res.json({ ok: true, delivery });
+  res.json({ ok: true, accountFound: Boolean(user), delivery });
 });
 
 authRouter.post("/reset-password", async (req, res) => {
