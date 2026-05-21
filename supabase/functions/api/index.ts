@@ -45,27 +45,27 @@ Deno.serve(async (req) => {
     const path = normalizePath(url.pathname);
     const body = await readJson(req);
 
-    if (req.method === "POST" && path === "/auth/register") return register(body);
-    if (req.method === "POST" && path === "/auth/login") return login(body);
-    if (req.method === "POST" && path === "/auth/forgot-password") return forgotPassword(body);
-    if (req.method === "POST" && path === "/auth/reset-password") return resetPassword(body);
-    if (req.method === "POST" && path === "/paypal/license-checkout") return licenseCheckout(body);
-    if (req.method === "POST" && path === "/paypal/webhook") return paypalWebhook(body);
+    if (req.method === "POST" && path === "/auth/register") return await register(body);
+    if (req.method === "POST" && path === "/auth/login") return await login(body);
+    if (req.method === "POST" && path === "/auth/forgot-password") return await forgotPassword(body);
+    if (req.method === "POST" && path === "/auth/reset-password") return await resetPassword(body);
+    if (req.method === "POST" && path === "/paypal/license-checkout") return await licenseCheckout(body);
+    if (req.method === "POST" && path === "/paypal/webhook") return await paypalWebhook(body);
 
     const auth = await requireAuth(req);
     if (req.method === "GET" && path === "/auth/me") return json({ user: publicUser(auth.user), business: auth.business });
-    if (req.method === "POST" && path === "/auth/activate-license") return activateLicense(auth, body);
+    if (req.method === "POST" && path === "/auth/activate-license") return await activateLicense(auth, body);
     if (req.method === "GET" && path === "/license") return getLicense(auth);
 
-    if (path.startsWith("/products")) return productsRoute(req, path, body, auth);
-    if (path.startsWith("/customers")) return customersRoute(req, path, body, auth);
-    if (path.startsWith("/sales")) return salesRoute(req, path, body, auth);
-    if (path.startsWith("/users")) return usersRoute(req, path, body, auth);
-    if (path === "/sync" && req.method === "POST") return syncRoute(body, auth);
-    if (path === "/paypal/create-subscription" && req.method === "POST") return createSubscription(auth.business.id, body?.plan || auth.business.plan);
+    if (path.startsWith("/products")) return await productsRoute(req, path, body, auth);
+    if (path.startsWith("/customers")) return await customersRoute(req, path, body, auth);
+    if (path.startsWith("/sales")) return await salesRoute(req, path, body, auth);
+    if (path.startsWith("/users")) return await usersRoute(req, path, body, auth);
+    if (path === "/sync" && req.method === "POST") return await syncRoute(body, auth);
+    if (path === "/paypal/create-subscription" && req.method === "POST") return await createSubscription(auth.business.id, body?.plan || auth.business.plan);
     if (path === "/paypal/checkout-link" && req.method === "POST") return json({ plan: body?.plan || auth.business.plan, mode: "subscription", createSubscriptionEndpoint: "/api/paypal/create-subscription" });
     if (path === "/paypal/status" && req.method === "GET") return paypalStatus();
-    if (path === "/paypal/mock-activate" && req.method === "POST") return mockActivate(auth, body);
+    if (path === "/paypal/mock-activate" && req.method === "POST") return await mockActivate(auth, body);
 
     return json({ error: `Route not found: ${req.method} ${path}` }, 404);
   } catch (error: unknown) {
