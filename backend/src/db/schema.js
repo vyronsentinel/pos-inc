@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS businesses (
   plan TEXT NOT NULL DEFAULT 'pro',
   subscription_status TEXT NOT NULL DEFAULT 'trial',
   trial_ends_at TEXT NOT NULL,
+  license_key TEXT NOT NULL DEFAULT '',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );

@@ -13,13 +13,24 @@ const registerSchema = z.object({
   ownerName: z.string().min(2),
   email: z.string().email(),
   password: z.string().min(8),
-  plan: z.enum(["starter", "pro", "business"]).default("pro")
+  plan: z.enum(["starter", "pro", "business"]).default("pro"),
+  licenseKey: z.string().optional()
 });
 
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1)
 });
+
+const licenseSchema = z.object({
+  licenseKey: z.string().min(1)
+});
+
+const licensePlans = {
+  POS2026799S: "starter",
+  POS20261299P: "pro",
+  POS20262199B: "business"
+};
 
 authRouter.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
@@ -33,15 +44,22 @@ authRouter.post("/register", async (req, res) => {
   const now = nowIso();
   const businessId = randomId("biz");
   const userId = randomId("usr");
+  const normalizedLicenseKey = input.licenseKey?.trim().toUpperCase() || "";
+  const licensedPlan = normalizedLicenseKey ? licensePlans[normalizedLicenseKey] : "";
+  if (normalizedLicenseKey && !licensedPlan) {
+    return res.status(400).json({ error: "License key was not recognized" });
+  }
+  const resolvedPlan = licensedPlan || input.plan;
 
   await mutateData((draft) => {
     draft.businesses.push({
       id: businessId,
       name: input.businessName,
       ownerEmail: input.email,
-      plan: input.plan,
-      subscriptionStatus: "pending",
+      plan: resolvedPlan,
+      subscriptionStatus: licensedPlan ? "active" : "pending",
       trialEndsAt: addDays(new Date(), 14).toISOString(),
+      licenseKey: normalizedLicenseKey || "",
       createdAt: now,
       updatedAt: now
     });
@@ -71,7 +89,18 @@ authRouter.post("/register", async (req, res) => {
 
   res.status(201).json({
     token: signAccessToken(userId, businessId),
-    user: { id: userId, businessId, name: input.ownerName, email: input.email, role: "owner" }
+    user: { id: userId, businessId, name: input.ownerName, email: input.email, role: "owner" },
+    business: {
+      id: businessId,
+      name: input.businessName,
+      ownerEmail: input.email,
+      plan: resolvedPlan,
+      subscriptionStatus: licensedPlan ? "active" : "pending",
+      trialEndsAt: addDays(new Date(), 14).toISOString(),
+      licenseKey: normalizedLicenseKey || "",
+      createdAt: now,
+      updatedAt: now
+    }
   });
 });
 
@@ -88,6 +117,29 @@ authRouter.post("/login", async (req, res) => {
 
 authRouter.get("/me", requireAuth, (req, res) => {
   res.json({ user: publicUser(req.user), business: req.business });
+});
+
+authRouter.post("/activate-license", requireAuth, async (req, res) => {
+  const parsed = licenseSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+  const normalizedLicenseKey = parsed.data.licenseKey.trim().toUpperCase();
+  const plan = licensePlans[normalizedLicenseKey];
+  if (!plan) return res.status(400).json({ error: "License key was not recognized" });
+
+  let business;
+  await mutateData((draft) => {
+    business = draft.businesses.find((item) => item.id === req.businessId);
+    if (business) {
+      Object.assign(business, {
+        plan,
+        subscriptionStatus: "active",
+        licenseKey: normalizedLicenseKey,
+        updatedAt: nowIso()
+      });
+    }
+  });
+  if (!business) return res.status(404).json({ error: "Business not found" });
+  res.json({ business });
 });
 
 function signAccessToken(userId, businessId) {

@@ -49,6 +49,7 @@ export async function initDb() {
       plan TEXT NOT NULL DEFAULT 'pro',
       subscription_status TEXT NOT NULL DEFAULT 'pending',
       trial_ends_at TEXT NOT NULL,
+      license_key TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -132,6 +133,7 @@ export async function initDb() {
       created_at TEXT NOT NULL
     );
   `);
+  await pool.query("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS license_key TEXT NOT NULL DEFAULT ''");
 }
 
 export async function readData() {
@@ -177,9 +179,9 @@ export async function writeData(data) {
 
     for (const business of data.businesses || []) {
       await client.query(
-        `INSERT INTO businesses (id, name, owner_email, plan, subscription_status, trial_ends_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [business.id, business.name, business.ownerEmail, business.plan, business.subscriptionStatus, business.trialEndsAt, business.createdAt, business.updatedAt]
+        `INSERT INTO businesses (id, name, owner_email, plan, subscription_status, trial_ends_at, license_key, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [business.id, business.name, business.ownerEmail, business.plan, business.subscriptionStatus, business.trialEndsAt, business.licenseKey || "", business.createdAt, business.updatedAt]
       );
     }
 
@@ -272,6 +274,7 @@ function mapBusiness(row) {
     plan: row.plan,
     subscriptionStatus: row.subscription_status,
     trialEndsAt: row.trial_ends_at,
+    licenseKey: row.license_key || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

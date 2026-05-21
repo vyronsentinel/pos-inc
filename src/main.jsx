@@ -177,6 +177,7 @@ function App() {
   const [loginDraft, setLoginDraft] = useState({ email: "", password: "" });
   const [accountPassword, setAccountPassword] = useState("");
   const [licenseKeyDraft, setLicenseKeyDraft] = useState("");
+  const [pendingLicenseKeyDraft, setPendingLicenseKeyDraft] = useState("");
   const [authMode, setAuthMode] = useState("login");
   const [isActivating, setIsActivating] = useState(false);
   const [editingProductId, setEditingProductId] = useState("");
@@ -306,10 +307,6 @@ function App() {
     const normalizedLicenseKey = licenseKeyDraft.trim().toUpperCase();
     const licensedPlan = normalizedLicenseKey ? licensePlans[normalizedLicenseKey] : "";
     if (normalizedLicenseKey && !licensedPlan) return flash("License key was not recognized.");
-    if (licensedPlan) {
-      activateLicense(normalizedLicenseKey, licensedPlan);
-      return;
-    }
     if (!accountPassword || accountPassword.length < 8) return flash("Password must be at least 8 characters.");
     setIsActivating(true);
 
@@ -321,10 +318,17 @@ function App() {
           ownerName: accountDraft.ownerName || "Owner",
           email: accountDraft.email,
           password: accountPassword,
-          plan: accountDraft.plan
+          plan: licensedPlan || accountDraft.plan,
+          ...(normalizedLicenseKey ? { licenseKey: normalizedLicenseKey } : {})
         }
       });
       localStorage.setItem(authTokenKey, register.token);
+
+      if (licensedPlan) {
+        activateBusiness(register.business, register.user, normalizedLicenseKey);
+        flash(`${plans[licensedPlan].name} license activated.`);
+        return;
+      }
 
       const checkout = await apiRequest("/api/paypal/create-subscription", {
         method: "POST",
@@ -383,7 +387,7 @@ function App() {
           ownerName: current.user.name,
           email: current.user.email,
           plan: business.plan,
-          licenseKey: createLicenseKey(business.name)
+          licenseKey: business.licenseKey || createLicenseKey(business.name)
         });
         setAuthMode("register");
         flash("Signed in, but this account still needs payment confirmation.");
@@ -398,7 +402,7 @@ function App() {
         plan: business.plan,
         status: "active",
         trialEndsAt: business.trialEndsAt,
-        licenseKey: createLicenseKey(business.name),
+        licenseKey: business.licenseKey || createLicenseKey(business.name),
         lastVerifiedAt: now,
         createdAt: business.createdAt || now
       });
@@ -415,29 +419,53 @@ function App() {
     }
   }
 
-  function activateLicense(normalizedKey, plan) {
+  function activateBusiness(business, user, licenseKey = "") {
     const now = new Date().toISOString();
     const activeAccount = {
-      id: `manual-${normalizedKey.toLowerCase()}`,
-      businessName: accountDraft.businessName,
-      ownerName: accountDraft.ownerName || "Owner",
-      email: accountDraft.email,
-      plan,
+      id: business.id,
+      businessName: business.name,
+      ownerName: user.name,
+      email: user.email,
+      plan: business.plan,
       status: "active",
-      trialEndsAt: addDays(new Date(), 365).toISOString(),
-      licenseKey: normalizedKey,
+      trialEndsAt: business.trialEndsAt,
+      licenseKey: licenseKey || business.licenseKey || createLicenseKey(business.name),
       lastVerifiedAt: now,
-      createdAt: now
+      createdAt: business.createdAt || now
     };
 
     setAccount(activeAccount);
     setStore((currentStore) => ({
       ...currentStore,
-      settings: { ...currentStore.settings, storeName: accountDraft.businessName }
+      settings: { ...currentStore.settings, storeName: business.name }
     }));
     setPendingActivation(null);
-    localStorage.removeItem(authTokenKey);
-    flash(`${plans[plan].name} license activated.`);
+  }
+
+  async function activatePendingLicense(event) {
+    event.preventDefault();
+    const token = localStorage.getItem(authTokenKey);
+    if (!token) return flash("Missing auth token. Please sign in again.");
+    const normalizedLicenseKey = pendingLicenseKeyDraft.trim().toUpperCase();
+    if (!normalizedLicenseKey) return flash("License key is required.");
+    if (!licensePlans[normalizedLicenseKey]) return flash("License key was not recognized.");
+    setIsActivating(true);
+
+    try {
+      const result = await apiRequest("/api/auth/activate-license", {
+        method: "POST",
+        token,
+        body: { licenseKey: normalizedLicenseKey }
+      });
+      const current = await apiRequest("/api/auth/me", { token });
+      activateBusiness(result.business, current.user, normalizedLicenseKey);
+      setPendingLicenseKeyDraft("");
+      flash(`${plans[result.business.plan].name} license activated.`);
+    } catch (error) {
+      flash(error.message || "Could not activate license.");
+    } finally {
+      setIsActivating(false);
+    }
   }
 
   function verifyLicense() {
@@ -445,11 +473,6 @@ function App() {
     if (!isOnline) return flash("Connect to the internet to refresh the license.");
     setAccount({ ...account, lastVerifiedAt: new Date().toISOString(), status: account.status === "canceled" ? "active" : account.status });
     flash("License refreshed.");
-  }
-
-  function changePlan(plan) {
-    setAccount({ ...account, plan, status: "active", lastVerifiedAt: new Date().toISOString() });
-    flash(`${plans[plan].name} plan selected.`);
   }
 
   function addToCart(product) {
@@ -793,6 +816,12 @@ function App() {
               <span>{pendingActivation.plan} plan</span>
               <p>We are waiting for PayPal to confirm the subscription. Use the button below after approval.</p>
               <button className="primary wide" type="button" onClick={() => syncPendingActivation(true)}>Check payment status</button>
+              <form className="form-grid" onSubmit={activatePendingLicense}>
+                <label className="field">License Key <span>Optional</span>
+                  <input autoComplete="off" value={pendingLicenseKeyDraft} onChange={(event) => setPendingLicenseKeyDraft(event.target.value.toUpperCase())} />
+                </label>
+                <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Activating..." : "Activate License"}</button>
+              </form>
               <button className="secondary wide" type="button" onClick={() => {
                 setPendingActivation(null);
                 localStorage.removeItem(authTokenKey);
@@ -1154,7 +1183,7 @@ function App() {
               </div>
             </section>
             <section className="panel billing-panel">
-              <div className="panel-head"><h2>Plans</h2><p>Demo pricing for customer accounts</p></div>
+              <div className="panel-head"><h2>Plans</h2><p>Your plan is controlled by the active license or subscription</p></div>
               <div className="plan-list">
                 {Object.entries(plans).map(([key, plan]) => (
                   <article className={account.plan === key ? "plan-row current" : "plan-row"} key={key}>
@@ -1164,8 +1193,8 @@ function App() {
                     </div>
                     <div>
                       <b>{money.format(plan.price)}/mo</b>
-                      <button className={account.plan === key ? "secondary" : "primary"} onClick={() => changePlan(key)}>
-                        {account.plan === key ? "Current" : "Select"}
+                      <button className={account.plan === key ? "secondary" : "secondary"} disabled={account.plan !== key}>
+                        {account.plan === key ? "Current" : "Locked"}
                       </button>
                     </div>
                   </article>
