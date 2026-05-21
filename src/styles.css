@@ -594,6 +594,48 @@ input:disabled {
   background: #ffffff;
 }
 
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 18px;
+  padding: 4px;
+  background: #eef5f6;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.mode-toggle button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.mode-toggle button.selected {
+  background: #ffffff;
+  color: var(--ink);
+  box-shadow: 0 6px 14px rgba(7, 24, 49, 0.08);
+}
+
+.pending-card {
+  display: grid;
+  gap: 10px;
+}
+
+.pending-card strong,
+.pending-card span {
+  display: block;
+}
+
+.pending-card span,
+.pending-card p {
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .plan-option strong,
 .plan-option span,
 .plan-row strong,

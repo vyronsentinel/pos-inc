@@ -168,7 +168,9 @@ function App() {
   const [productDraft, setProductDraft] = useState({ name: "", sku: "", category: "", price: "", cost: "", stock: "", reorder: "" });
   const [customerDraft, setCustomerDraft] = useState({ name: "", phone: "", email: "" });
   const [accountDraft, setAccountDraft] = useState({ businessName: "", ownerName: "", email: "", plan: "pro" });
+  const [loginDraft, setLoginDraft] = useState({ email: "", password: "" });
   const [accountPassword, setAccountPassword] = useState("");
+  const [authMode, setAuthMode] = useState("login");
   const [isActivating, setIsActivating] = useState(false);
   const [editingProductId, setEditingProductId] = useState("");
   const [productEditDraft, setProductEditDraft] = useState(null);
@@ -326,6 +328,7 @@ function App() {
       };
 
       setPendingActivation(activation);
+      setAuthMode("register");
 
       localStorage.setItem(storeKey, JSON.stringify({
         ...store,
@@ -337,6 +340,62 @@ function App() {
       return;
     } catch (error) {
       flash(error.message || "Could not start PayPal checkout.");
+    } finally {
+      setIsActivating(false);
+    }
+  }
+
+  async function finishLogin(event) {
+    event.preventDefault();
+    if (!loginDraft.email) return flash("Email is required.");
+    if (!loginDraft.password) return flash("Password is required.");
+    setIsActivating(true);
+
+    try {
+      const login = await apiRequest("/api/auth/login", {
+        method: "POST",
+        body: loginDraft
+      });
+      localStorage.setItem(authTokenKey, login.token);
+
+      const current = await apiRequest("/api/auth/me", { token: login.token });
+      const business = current.business;
+      const now = new Date().toISOString();
+
+      if (business.subscriptionStatus !== "active") {
+        setPendingActivation({
+          businessId: business.id,
+          businessName: business.name,
+          ownerName: current.user.name,
+          email: current.user.email,
+          plan: business.plan,
+          licenseKey: createLicenseKey(business.name)
+        });
+        setAuthMode("register");
+        flash("Signed in, but this account still needs payment confirmation.");
+        return;
+      }
+
+      setAccount({
+        id: business.id,
+        businessName: business.name,
+        ownerName: current.user.name,
+        email: current.user.email,
+        plan: business.plan,
+        status: "active",
+        trialEndsAt: business.trialEndsAt,
+        licenseKey: createLicenseKey(business.name),
+        lastVerifiedAt: now,
+        createdAt: business.createdAt || now
+      });
+      setStore((currentStore) => ({
+        ...currentStore,
+        settings: { ...currentStore.settings, storeName: business.name }
+      }));
+      setPendingActivation(null);
+      flash("Signed in successfully.");
+    } catch (error) {
+      flash(error.message || "Could not sign in.");
     } finally {
       setIsActivating(false);
     }
@@ -659,11 +718,13 @@ function App() {
           <div className="brand large-brand">
             <img className="brand-logo brand-logo-large" src="/POSlogo-cropped.png" alt="POS inc" />
           </div>
-          <h1>{pendingActivation ? "Waiting for PayPal confirmation" : "Activate a business workspace"}</h1>
+          <h1>{pendingActivation ? "Waiting for PayPal confirmation" : authMode === "login" ? "Sign in to your workspace" : "Activate a business workspace"}</h1>
           <p>
             {pendingActivation
               ? "Your business profile was created. Finish the PayPal approval and come back here so we can verify the payment before unlocking the workspace."
-              : "Set up a licensed POS workspace for this business, then open the register with local offline access and plan-based controls."}
+              : authMode === "login"
+                ? "Sign in with the email and password you used when the account was created."
+                : "Set up a licensed POS workspace for this business, then open the register with local offline access and plan-based controls."}
           </p>
           <div className="license-notes">
             <span><Check size={16} /> 14-day trial</span>
@@ -674,11 +735,18 @@ function App() {
         <section className="panel onboarding-card">
           <div className="panel-head">
             <div>
-              <h2>{pendingActivation ? "Payment pending" : "Business Account"}</h2>
-              <p>{pendingActivation ? "Do not refresh PayPal until it has completed." : "Create the first register profile for this store."}</p>
+              <h2>{pendingActivation ? "Payment pending" : authMode === "login" ? "Existing User Login" : "Business Account"}</h2>
+              <p>{pendingActivation ? "Do not refresh PayPal until it has completed." : authMode === "login" ? "Log in with your registered account email and password." : "Create the first register profile for this store."}</p>
             </div>
-            <Building2 size={22} />
+            {authMode === "login" ? <UserRound size={22} /> : <Building2 size={22} />}
           </div>
+
+          {!pendingActivation && (
+            <div className="mode-toggle">
+              <button type="button" className={authMode === "login" ? "selected" : ""} onClick={() => setAuthMode("login")}>Sign in</button>
+              <button type="button" className={authMode === "register" ? "selected" : ""} onClick={() => setAuthMode("register")}>Create account</button>
+            </div>
+          )}
 
           {pendingActivation ? (
             <div className="pending-card">
@@ -692,6 +760,17 @@ function App() {
                 window.history.replaceState({}, document.title, window.location.pathname);
               }}>Start over</button>
             </div>
+          ) : authMode === "login" ? (
+            <form className="form-grid" onSubmit={finishLogin}>
+              <label className="field">Email
+                <input type="email" required autoComplete="email" value={loginDraft.email} onChange={(event) => setLoginDraft({ ...loginDraft, email: event.target.value })} />
+              </label>
+              <label className="field">Password
+                <input type="password" autoComplete="current-password" required minLength={1} value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} />
+              </label>
+              <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Signing in..." : "Sign In"}</button>
+              <button className="secondary wide" type="button" onClick={() => setAuthMode("register")}>Create a New Business Account</button>
+            </form>
           ) : (
             <form className="form-grid" onSubmit={finishOnboarding}>
               <label className="field">Business Name
@@ -701,7 +780,7 @@ function App() {
                 <input value={accountDraft.ownerName} onChange={(event) => setAccountDraft({ ...accountDraft, ownerName: event.target.value })} />
               </label>
               <label className="field">Email
-                <input type="email" required value={accountDraft.email} onChange={(event) => setAccountDraft({ ...accountDraft, email: event.target.value })} />
+                <input type="email" required autoComplete="email" value={accountDraft.email} onChange={(event) => setAccountDraft({ ...accountDraft, email: event.target.value })} />
               </label>
               <label className="field">Password
                 <input type="password" autoComplete="current-password" required minLength={8} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
