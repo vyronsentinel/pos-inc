@@ -8,6 +8,8 @@ import {
   CreditCard,
   Download,
   Edit3,
+  Eye,
+  EyeOff,
   FileDown,
   KeyRound,
   Lock,
@@ -189,6 +191,7 @@ function App() {
   const [authMode, setAuthMode] = useState("login");
   const [resetToken, setResetToken] = useState("");
   const [isActivating, setIsActivating] = useState(false);
+  const [showLicenseKey, setShowLicenseKey] = useState(false);
   const [editingProductId, setEditingProductId] = useState("");
   const [productEditDraft, setProductEditDraft] = useState(null);
   const [editingCustomerId, setEditingCustomerId] = useState("");
@@ -1384,8 +1387,13 @@ function App() {
                 <KeyRound size={22} />
               </div>
               <div className="license-card">
-                <span>License Key</span>
-                <strong>{account.licenseKey}</strong>
+                <div className="license-key-head">
+                  <span>License Key</span>
+                  <button type="button" aria-label={showLicenseKey ? "Hide license key" : "Show license key"} title={showLicenseKey ? "Hide license key" : "Show license key"} onClick={() => setShowLicenseKey((current) => !current)}>
+                    {showLicenseKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <strong className={showLicenseKey ? "" : "license-key-masked"}>{showLicenseKey ? account.licenseKey : maskLicenseKey(account.licenseKey)}</strong>
                 <p>{license.detail}</p>
               </div>
               <div className="license-actions">
@@ -1596,6 +1604,12 @@ function viewTitle(view) {
 
 function labelize(value) {
   return value.replace(/([A-Z])/g, " $1").replace(/^./, (char) => char.toUpperCase());
+}
+
+function maskLicenseKey(value) {
+  const text = String(value || "");
+  if (text.length <= 4) return "••••";
+  return `${"•".repeat(Math.max(4, text.length - 4))}${text.slice(-4)}`;
 }
 
 createRoot(document.getElementById("root")).render(<App />);
