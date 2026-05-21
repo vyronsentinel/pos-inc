@@ -47,6 +47,8 @@ const licensePlans = {
   POS20262199B: "business"
 };
 
+const planRank = { starter: 0, pro: 1, business: 2 };
+
 const rolePermissions = {
   owner: ["checkout", "discount", "refund", "inventory", "products", "customers", "reports", "settings", "billing", "backup", "users"],
   manager: ["checkout", "discount", "refund", "inventory", "products", "customers", "reports", "backup"],
@@ -244,6 +246,7 @@ function App() {
   const tax = taxable * store.settings.taxRate;
   const total = taxable + tax;
   const currentUser = store.users.find((user) => user.id === store.settings.activeUserId) || store.users[0];
+  const currentCustomer = store.customers.find((customer) => customer.id === selectedCustomer) || store.customers[0];
   const completedSales = store.sales.filter((sale) => sale.status !== "refunded");
   const refundedSales = store.sales.filter((sale) => sale.status === "refunded");
   const todaysSales = completedSales.filter((sale) => sale.date.startsWith(todayKey));
@@ -354,7 +357,8 @@ function App() {
       }));
 
       if (!checkout.approveLink) throw new Error("PayPal did not return an approval link.");
-      window.location.href = checkout.approveLink;
+      window.open(checkout.approveLink, "_blank", "noopener,noreferrer");
+      flash("PayPal checkout opened in a new tab.");
       return;
     } catch (error) {
       flash(error.message || "Could not start PayPal checkout.");
@@ -463,6 +467,28 @@ function App() {
       flash(`${plans[result.business.plan].name} license activated.`);
     } catch (error) {
       flash(error.message || "Could not activate license.");
+    } finally {
+      setIsActivating(false);
+    }
+  }
+
+  async function openPlanUpgrade(plan) {
+    if (planRank[plan] <= planRank[account.plan]) return;
+    const token = localStorage.getItem(authTokenKey);
+    if (!token) return flash("Please sign in again before upgrading.");
+    setIsActivating(true);
+
+    try {
+      const checkout = await apiRequest("/api/paypal/create-subscription", {
+        method: "POST",
+        token,
+        body: { plan }
+      });
+      if (!checkout.approveLink) throw new Error("PayPal did not return an approval link.");
+      window.open(checkout.approveLink, "_blank", "noopener,noreferrer");
+      flash(`${plans[plan].name} upgrade opened in a new tab.`);
+    } catch (error) {
+      flash(error.message || "Could not open PayPal upgrade.");
     } finally {
       setIsActivating(false);
     }
@@ -955,6 +981,11 @@ function App() {
             </section>
 
             <section className="panel cart-panel">
+              <div className="receipt-brand">
+                <strong>{store.settings.storeName}</strong>
+                <span>{store.settings.location}</span>
+                <small>{new Date().toLocaleString()}</small>
+              </div>
               <div className="panel-head compact">
                 <div>
                   <h2>Current Sale</h2>
@@ -962,7 +993,15 @@ function App() {
                 </div>
                 <ReceiptText size={22} />
               </div>
-              <label className="field">
+              <div className="receipt-meta">
+                <span>Cashier</span>
+                <strong>{currentUser.name}</strong>
+                <span>Customer</span>
+                <strong>{currentCustomer?.name || "Walk-in Customer"}</strong>
+                <span>Payment</span>
+                <strong>{paymentType}</strong>
+              </div>
+              <label className="field customer-picker">
                 Customer
                 <select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>
                   {store.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}
@@ -974,13 +1013,14 @@ function App() {
                   <div className="cart-line" key={line.productId}>
                     <div>
                       <strong>{line.product.name}</strong>
-                      <span>{money.format(line.product.price)} each</span>
+                      <span>{line.product.sku} - {money.format(line.product.price)} each</span>
                     </div>
                     <div className="qty-control">
                       <button aria-label="Decrease quantity" onClick={() => changeQty(line.productId, -1)}><Minus size={14} /></button>
                       <b>{line.qty}</b>
                       <button aria-label="Increase quantity" onClick={() => changeQty(line.productId, 1)}><Plus size={14} /></button>
                     </div>
+                    <span className="print-line-qty">{line.qty} x {money.format(line.product.price)}</span>
                     <strong>{money.format(line.lineTotal)}</strong>
                     <button className="icon-danger" aria-label="Remove item" onClick={() => setCart(cart.filter((item) => item.productId !== line.productId))}><Trash2 size={15} /></button>
                   </div>
@@ -1006,6 +1046,10 @@ function App() {
               <div className="action-row">
                 <button className="secondary" onClick={() => window.print()}><Printer size={17} /> Print</button>
                 <button className="primary" onClick={checkout}><ShieldCheck size={18} /> Complete Sale</button>
+              </div>
+              <div className="receipt-footer">
+                <strong>{store.settings.receiptFooter}</strong>
+                <span>Served by {currentUser.name}</span>
               </div>
             </section>
           </div>
@@ -1185,20 +1229,24 @@ function App() {
             <section className="panel billing-panel">
               <div className="panel-head"><h2>Plans</h2><p>Your plan is controlled by the active license or subscription</p></div>
               <div className="plan-list">
-                {Object.entries(plans).map(([key, plan]) => (
-                  <article className={account.plan === key ? "plan-row current" : "plan-row"} key={key}>
-                    <div>
-                      <strong>{plan.name}</strong>
-                      <span>{plan.registers} register{plan.registers > 1 ? "s" : ""} - {plan.features.join(", ")}</span>
-                    </div>
-                    <div>
-                      <b>{money.format(plan.price)}/mo</b>
-                      <button className={account.plan === key ? "secondary" : "secondary"} disabled={account.plan !== key}>
-                        {account.plan === key ? "Current" : "Locked"}
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                {Object.entries(plans).map(([key, plan]) => {
+                  const isCurrent = account.plan === key;
+                  const isUpgrade = planRank[key] > planRank[account.plan];
+                  return (
+                    <article className={isCurrent ? "plan-row current" : "plan-row"} key={key}>
+                      <div>
+                        <strong>{plan.name}</strong>
+                        <span>{plan.registers} register{plan.registers > 1 ? "s" : ""} - {plan.features.join(", ")}</span>
+                      </div>
+                      <div>
+                        <b>{money.format(plan.price)}/mo</b>
+                        <button className={isUpgrade ? "primary" : "secondary"} disabled={!isUpgrade || isActivating} onClick={() => openPlanUpgrade(key)}>
+                          {isCurrent ? "Current" : isUpgrade ? "Upgrade" : "Included"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             </section>
           </div>
@@ -1319,6 +1367,7 @@ function getLicenseState(account, isOnline) {
   const graceRemaining = Math.max(0, graceDays - daysSinceVerify);
   const trialActive = now <= trialEnds;
   const paidActive = account.status === "active";
+  const officialLicense = Boolean(licensePlans[account.licenseKey]);
   const usable = account.status !== "canceled" && (paidActive || trialActive || (!isOnline && graceRemaining > 0));
 
   if (account.status === "canceled") {
@@ -1327,11 +1376,14 @@ function getLicenseState(account, isOnline) {
   if (!isOnline && usable) {
     return { label: `${graceRemaining}d Grace`, summary: `${graceRemaining} days of offline use left`, detail: `Offline grace is active. Reconnect within ${graceRemaining} day${graceRemaining === 1 ? "" : "s"} to refresh the license.`, canUseRegister: true };
   }
-  if (trialActive) {
-    return { label: "Trial", summary: "Trial license active", detail: `Trial active until ${trialEnds.toLocaleDateString()}.`, canUseRegister: true };
+  if (officialLicense && paidActive) {
+    return { label: "Licensed", summary: "Official license active", detail: `${plans[account.plan].name} license verified.`, canUseRegister: true };
   }
   if (paidActive) {
     return { label: "Active", summary: "Subscription verified", detail: `Last verified ${lastVerified.toLocaleString()}.`, canUseRegister: true };
+  }
+  if (trialActive) {
+    return { label: "Trial", summary: "Trial license active", detail: `Trial active until ${trialEnds.toLocaleDateString()}.`, canUseRegister: true };
   }
   return { label: "Expired", summary: "License needs payment", detail: "The trial has ended. Select a paid plan to continue.", canUseRegister: false };
 }

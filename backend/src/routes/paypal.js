@@ -20,6 +20,8 @@ const planIds = {
   business: process.env.PAYPAL_BUSINESS_PLAN_ID
 };
 
+const planKeys = new Set(["starter", "pro", "business"]);
+
 paypalRouter.get("/status", requireAuth, (_req, res) => {
   res.json({
     environment: process.env.PAYPAL_ENVIRONMENT || "sandbox",
@@ -54,6 +56,7 @@ paypalRouter.post("/checkout-link", requireAuth, (req, res) => {
 
 paypalRouter.post("/create-subscription", requireAuth, async (req, res) => {
   const plan = req.body?.plan || req.business.plan || "pro";
+  if (!planKeys.has(plan)) return res.status(400).json({ error: "Invalid plan" });
   const planId = planIds[plan];
   if (!planId) return res.status(400).json({ error: `Missing PayPal subscription plan ID for ${plan}. Payment links cannot auto-charge after a 14-day trial.` });
 
@@ -71,7 +74,7 @@ paypalRouter.post("/create-subscription", requireAuth, async (req, res) => {
         },
         body: JSON.stringify({
           plan_id: planId,
-          custom_id: req.businessId,
+          custom_id: `${req.businessId}:${plan}`,
           application_context: {
             brand_name: "POS inc",
             user_action: "SUBSCRIBE_NOW",
@@ -90,9 +93,10 @@ paypalRouter.post("/create-subscription", requireAuth, async (req, res) => {
 });
 
 paypalRouter.post("/mock-activate", requireAuth, async (req, res) => {
+  const plan = req.body?.plan;
   await mutateData((draft) => {
     const business = draft.businesses.find((item) => item.id === req.businessId);
-    if (business) Object.assign(business, { subscriptionStatus: "active", updatedAt: nowIso() });
+    if (business) Object.assign(business, { ...(planKeys.has(plan) ? { plan } : {}), subscriptionStatus: "active", updatedAt: nowIso() });
   });
   res.json({ ok: true });
 });
@@ -103,17 +107,17 @@ paypalRouter.post("/webhook", express.json({ type: "*/*" }), async (req, res) =>
   const resource = req.body?.resource;
 
   if (["BILLING.SUBSCRIPTION.ACTIVATED", "PAYMENT.SALE.COMPLETED"].includes(eventType)) {
-    const businessId = resource?.custom_id;
+    const { businessId, plan } = parseCustomId(resource?.custom_id);
     if (businessId) {
       await mutateData((draft) => {
         const business = draft.businesses.find((item) => item.id === businessId);
-        if (business) Object.assign(business, { subscriptionStatus: "active", updatedAt: nowIso() });
+        if (business) Object.assign(business, { ...(plan ? { plan } : {}), subscriptionStatus: "active", updatedAt: nowIso() });
       });
     }
   }
 
   if (["BILLING.SUBSCRIPTION.CANCELLED", "BILLING.SUBSCRIPTION.SUSPENDED"].includes(eventType)) {
-    const businessId = resource?.custom_id;
+    const { businessId } = parseCustomId(resource?.custom_id);
     if (businessId) {
       await mutateData((draft) => {
         const business = draft.businesses.find((item) => item.id === businessId);
@@ -124,6 +128,11 @@ paypalRouter.post("/webhook", express.json({ type: "*/*" }), async (req, res) =>
 
   res.json({ received: true });
 });
+
+function parseCustomId(customId = "") {
+  const [businessId, plan] = String(customId).split(":");
+  return { businessId, plan: planKeys.has(plan) ? plan : "" };
+}
 
 async function getPayPalAccessToken() {
   if (!process.env.PAYPAL_CLIENT_ID || !process.env.PAYPAL_CLIENT_SECRET) {
