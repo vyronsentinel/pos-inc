@@ -175,8 +175,8 @@ function App() {
   const [customerDraft, setCustomerDraft] = useState({ name: "", phone: "", email: "" });
   const [accountDraft, setAccountDraft] = useState({ businessName: "", ownerName: "", email: "", plan: "pro" });
   const [loginDraft, setLoginDraft] = useState({ email: "", password: "" });
-  const [licenseDraft, setLicenseDraft] = useState({ businessName: "", ownerName: "", email: "", licenseKey: "" });
   const [accountPassword, setAccountPassword] = useState("");
+  const [licenseKeyDraft, setLicenseKeyDraft] = useState("");
   const [authMode, setAuthMode] = useState("login");
   const [isActivating, setIsActivating] = useState(false);
   const [editingProductId, setEditingProductId] = useState("");
@@ -303,6 +303,13 @@ function App() {
     event.preventDefault();
     if (!accountDraft.businessName) return flash("Business name is required.");
     if (!accountDraft.email) return flash("Email is required.");
+    const normalizedLicenseKey = licenseKeyDraft.trim().toUpperCase();
+    const licensedPlan = normalizedLicenseKey ? licensePlans[normalizedLicenseKey] : "";
+    if (normalizedLicenseKey && !licensedPlan) return flash("License key was not recognized.");
+    if (licensedPlan) {
+      activateLicense(normalizedLicenseKey, licensedPlan);
+      return;
+    }
     if (!accountPassword || accountPassword.length < 8) return flash("Password must be at least 8 characters.");
     setIsActivating(true);
 
@@ -408,20 +415,13 @@ function App() {
     }
   }
 
-  function activateLicense(event) {
-    event.preventDefault();
-    const normalizedKey = licenseDraft.licenseKey.trim().toUpperCase();
-    const plan = licensePlans[normalizedKey];
-    if (!plan) return flash("License key was not recognized.");
-    if (!licenseDraft.businessName) return flash("Business name is required.");
-    if (!licenseDraft.email) return flash("Email is required.");
-
+  function activateLicense(normalizedKey, plan) {
     const now = new Date().toISOString();
     const activeAccount = {
       id: `manual-${normalizedKey.toLowerCase()}`,
-      businessName: licenseDraft.businessName,
-      ownerName: licenseDraft.ownerName || "Owner",
-      email: licenseDraft.email,
+      businessName: accountDraft.businessName,
+      ownerName: accountDraft.ownerName || "Owner",
+      email: accountDraft.email,
       plan,
       status: "active",
       trialEndsAt: addDays(new Date(), 365).toISOString(),
@@ -433,7 +433,7 @@ function App() {
     setAccount(activeAccount);
     setStore((currentStore) => ({
       ...currentStore,
-      settings: { ...currentStore.settings, storeName: licenseDraft.businessName }
+      settings: { ...currentStore.settings, storeName: accountDraft.businessName }
     }));
     setPendingActivation(null);
     localStorage.removeItem(authTokenKey);
@@ -757,14 +757,12 @@ function App() {
           <div className="brand large-brand">
             <img className="brand-logo brand-logo-large" src="/POSlogo-cropped.png" alt="POS inc" />
           </div>
-          <h1>{pendingActivation ? "Waiting for PayPal confirmation" : authMode === "login" ? "Sign in to your workspace" : authMode === "license" ? "Activate your license" : "Activate a business workspace"}</h1>
+          <h1>{pendingActivation ? "Waiting for PayPal confirmation" : authMode === "login" ? "Sign in to your workspace" : "Activate a business workspace"}</h1>
           <p>
             {pendingActivation
               ? "Your business profile was created. Finish the PayPal approval and come back here so we can verify the payment before unlocking the workspace."
               : authMode === "login"
                 ? "Sign in with the email and password you used when the account was created."
-                : authMode === "license"
-                  ? "Enter your official license key to unlock the matching plan on this device."
                 : "Set up a licensed POS workspace for this business, then open the register with local offline access and plan-based controls."}
           </p>
           <div className="license-notes">
@@ -776,16 +774,15 @@ function App() {
         <section className="panel onboarding-card">
           <div className="panel-head">
             <div>
-              <h2>{pendingActivation ? "Payment pending" : authMode === "login" ? "Existing User Login" : authMode === "license" ? "License Activation" : "Business Account"}</h2>
-              <p>{pendingActivation ? "Do not refresh PayPal until it has completed." : authMode === "login" ? "Log in with your registered account email and password." : authMode === "license" ? "Use your assigned official license key." : "Create the first register profile for this store."}</p>
+              <h2>{pendingActivation ? "Payment pending" : authMode === "login" ? "Existing User Login" : "Business Account"}</h2>
+              <p>{pendingActivation ? "Do not refresh PayPal until it has completed." : authMode === "login" ? "Log in with your registered account email and password." : "Create the first register profile for this store."}</p>
             </div>
-            {authMode === "login" ? <UserRound size={22} /> : authMode === "license" ? <KeyRound size={22} /> : <Building2 size={22} />}
+            {authMode === "login" ? <UserRound size={22} /> : <Building2 size={22} />}
           </div>
 
           {!pendingActivation && (
             <div className="mode-toggle">
               <button type="button" className={authMode === "login" ? "selected" : ""} onClick={() => setAuthMode("login")}>Sign in</button>
-              <button type="button" className={authMode === "license" ? "selected" : ""} onClick={() => setAuthMode("license")}>License</button>
               <button type="button" className={authMode === "register" ? "selected" : ""} onClick={() => setAuthMode("register")}>Create account</button>
             </div>
           )}
@@ -813,27 +810,6 @@ function App() {
               <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Signing in..." : "Sign In"}</button>
               <button className="secondary wide" type="button" onClick={() => setAuthMode("register")}>Create a New Business Account</button>
             </form>
-          ) : authMode === "license" ? (
-            <form className="form-grid" onSubmit={activateLicense}>
-              <label className="field">Business Name
-                <input required value={licenseDraft.businessName} onChange={(event) => setLicenseDraft({ ...licenseDraft, businessName: event.target.value })} />
-              </label>
-              <label className="field">Owner Name
-                <input value={licenseDraft.ownerName} onChange={(event) => setLicenseDraft({ ...licenseDraft, ownerName: event.target.value })} />
-              </label>
-              <label className="field">Email
-                <input type="email" required autoComplete="email" value={licenseDraft.email} onChange={(event) => setLicenseDraft({ ...licenseDraft, email: event.target.value })} />
-              </label>
-              <label className="field">License Key
-                <input required autoComplete="off" value={licenseDraft.licenseKey} onChange={(event) => setLicenseDraft({ ...licenseDraft, licenseKey: event.target.value.toUpperCase() })} />
-              </label>
-              <div className="license-code-list">
-                <span>Starter: POS2026799S</span>
-                <span>Pro: POS20261299P</span>
-                <span>Business: POS20262199B</span>
-              </div>
-              <button className="primary wide" type="submit">Activate License</button>
-            </form>
           ) : (
             <form className="form-grid" onSubmit={finishOnboarding}>
               <label className="field">Business Name
@@ -847,6 +823,9 @@ function App() {
               </label>
               <label className="field">Password
                 <input type="password" autoComplete="current-password" required minLength={8} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
+              </label>
+              <label className="field">License Key <span>Optional</span>
+                <input autoComplete="off" value={licenseKeyDraft} onChange={(event) => setLicenseKeyDraft(event.target.value.toUpperCase())} />
               </label>
               <div className="plan-picker">
                 {Object.entries(plans).map(([key, plan]) => (

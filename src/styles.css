@@ -596,7 +596,7 @@ input:disabled {
 
 .mode-toggle {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr 1fr;
   gap: 4px;
   margin-bottom: 18px;
   padding: 4px;
@@ -634,21 +634,6 @@ input:disabled {
 .pending-card p {
   color: var(--muted);
   font-size: 0.86rem;
-}
-
-.license-code-list {
-  display: grid;
-  gap: 6px;
-  padding: 12px;
-  background: var(--surface-soft);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-}
-
-.license-code-list span {
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 800;
 }
 
 .plan-option strong,
