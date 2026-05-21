@@ -12,27 +12,27 @@ const customerSchema = z.object({
   email: z.string().default("")
 });
 
-customersRouter.get("/", (req, res) => {
-  const customers = readData().customers
+customersRouter.get("/", async (req, res) => {
+  const customers = (await readData()).customers
     .filter((item) => item.businessId === req.businessId && !item.deletedAt)
     .sort((a, b) => a.name.localeCompare(b.name));
   res.json({ customers });
 });
 
-customersRouter.post("/", (req, res) => {
+customersRouter.post("/", async (req, res) => {
   const parsed = customerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const now = nowIso();
   const customer = { id: randomId("cus"), businessId: req.businessId, visits: 0, totalSpent: 0, ...parsed.data, createdAt: now, updatedAt: now };
-  mutateData((draft) => draft.customers.push(customer));
+  await mutateData((draft) => draft.customers.push(customer));
   res.status(201).json({ customer });
 });
 
-customersRouter.put("/:id", (req, res) => {
+customersRouter.put("/:id", async (req, res) => {
   const parsed = customerSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   let updated;
-  mutateData((draft) => {
+  await mutateData((draft) => {
     const customer = draft.customers.find((item) => item.id === req.params.id && item.businessId === req.businessId && !item.deletedAt);
     if (!customer) return;
     Object.assign(customer, parsed.data, { updatedAt: nowIso() });
@@ -42,8 +42,8 @@ customersRouter.put("/:id", (req, res) => {
   res.json({ customer: updated });
 });
 
-customersRouter.delete("/:id", (req, res) => {
-  mutateData((draft) => {
+customersRouter.delete("/:id", async (req, res) => {
+  await mutateData((draft) => {
     const customer = draft.customers.find((item) => item.id === req.params.id && item.businessId === req.businessId);
     if (customer) Object.assign(customer, { deletedAt: nowIso(), updatedAt: nowIso() });
   });

@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import express from "express";
 import helmet from "helmet";
 import morgan from "morgan";
-import { readData, writeData } from "./db.js";
+import { initDb } from "./db.js";
 import { authRouter } from "./routes/auth.js";
 import { customersRouter } from "./routes/customers.js";
 import { licenseRouter } from "./routes/license.js";
@@ -14,7 +14,7 @@ import { syncRouter } from "./routes/sync.js";
 import { usersRouter } from "./routes/users.js";
 
 dotenv.config();
-writeData(readData());
+await initDb();
 
 const app = express();
 const port = Number(process.env.PORT || 4000);

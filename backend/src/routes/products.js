@@ -16,32 +16,36 @@ const productSchema = z.object({
   reorderLevel: z.number().int().nonnegative().default(5)
 });
 
-productsRouter.get("/", (req, res) => {
-  const products = readData().products
+productsRouter.get("/", async (req, res) => {
+  const products = (await readData()).products
     .filter((item) => item.businessId === req.businessId && !item.deletedAt)
     .sort((a, b) => a.name.localeCompare(b.name));
   res.json({ products });
 });
 
-productsRouter.post("/", requireRole("owner", "manager"), (req, res) => {
+productsRouter.post("/", requireRole("owner", "manager"), async (req, res) => {
   const parsed = productSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const now = nowIso();
   const product = { id: randomId("prd"), businessId: req.businessId, ...parsed.data, createdAt: now, updatedAt: now };
-  mutateData((draft) => {
+  try {
+    await mutateData((draft) => {
     if (draft.products.some((item) => item.businessId === req.businessId && item.sku === product.sku && !item.deletedAt)) {
       throw new Error("SKU already exists");
     }
     draft.products.push(product);
-  });
-  res.status(201).json({ product });
+    });
+    res.status(201).json({ product });
+  } catch (error) {
+    res.status(409).json({ error: error.message });
+  }
 });
 
-productsRouter.put("/:id", requireRole("owner", "manager"), (req, res) => {
+productsRouter.put("/:id", requireRole("owner", "manager"), async (req, res) => {
   const parsed = productSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   let updated;
-  mutateData((draft) => {
+  await mutateData((draft) => {
     const product = draft.products.find((item) => item.id === req.params.id && item.businessId === req.businessId && !item.deletedAt);
     if (!product) return;
     Object.assign(product, parsed.data, { updatedAt: nowIso() });
@@ -51,8 +55,8 @@ productsRouter.put("/:id", requireRole("owner", "manager"), (req, res) => {
   res.json({ product: updated });
 });
 
-productsRouter.delete("/:id", requireRole("owner", "manager"), (req, res) => {
-  mutateData((draft) => {
+productsRouter.delete("/:id", requireRole("owner", "manager"), async (req, res) => {
+  await mutateData((draft) => {
     const product = draft.products.find((item) => item.id === req.params.id && item.businessId === req.businessId);
     if (product) Object.assign(product, { deletedAt: nowIso(), updatedAt: nowIso() });
   });

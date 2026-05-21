@@ -14,15 +14,15 @@ const userSchema = z.object({
   role: z.enum(["owner", "manager", "cashier"])
 });
 
-usersRouter.get("/", requireRole("owner", "manager"), (req, res) => {
-  const users = readData().users
+usersRouter.get("/", requireRole("owner", "manager"), async (req, res) => {
+  const users = (await readData()).users
     .filter((item) => item.businessId === req.businessId)
     .map(publicUser)
     .sort((a, b) => a.name.localeCompare(b.name));
   res.json({ users });
 });
 
-usersRouter.post("/", requireRole("owner"), (req, res) => {
+usersRouter.post("/", requireRole("owner"), async (req, res) => {
   const parsed = userSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const now = nowIso();
@@ -37,15 +37,15 @@ usersRouter.post("/", requireRole("owner"), (req, res) => {
     createdAt: now,
     updatedAt: now
   };
-  mutateData((draft) => draft.users.push(user));
+  await mutateData((draft) => draft.users.push(user));
   res.status(201).json({ user: publicUser(user) });
 });
 
-usersRouter.patch("/:id", requireRole("owner"), (req, res) => {
+usersRouter.patch("/:id", requireRole("owner"), async (req, res) => {
   const parsed = z.object({ active: z.boolean().optional(), role: z.enum(["owner", "manager", "cashier"]).optional() }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   let updated;
-  mutateData((draft) => {
+  await mutateData((draft) => {
     const user = draft.users.find((item) => item.id === req.params.id && item.businessId === req.businessId);
     if (!user) return;
     Object.assign(user, parsed.data, { updatedAt: nowIso() });

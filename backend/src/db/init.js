@@ -1,4 +1,5 @@
-import { readData, writeData } from "../db.js";
+import { initDb, readData, writeData } from "../db.js";
 
-writeData(readData());
-console.log("POS inc JSON database initialized.");
+await initDb();
+await writeData(await readData());
+console.log("POS inc database initialized.");

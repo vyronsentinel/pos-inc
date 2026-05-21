@@ -23,8 +23,8 @@ const saleSchema = z.object({
   })).min(1)
 });
 
-salesRouter.get("/", (req, res) => {
-  const data = readData();
+salesRouter.get("/", async (req, res) => {
+  const data = await readData();
   const sales = data.sales
     .filter((item) => item.businessId === req.businessId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -33,7 +33,7 @@ salesRouter.get("/", (req, res) => {
   res.json({ sales });
 });
 
-salesRouter.post("/", (req, res) => {
+salesRouter.post("/", async (req, res) => {
   const parsed = saleSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const input = parsed.data;
@@ -42,7 +42,7 @@ salesRouter.post("/", (req, res) => {
   let sale;
 
   try {
-    mutateData((draft) => {
+    await mutateData((draft) => {
       for (const line of input.lines) {
         const product = draft.products.find((item) => item.id === line.productId && item.businessId === req.businessId && !item.deletedAt);
         if (!product) throw new Error(`Product not found: ${line.name}`);
@@ -88,9 +88,9 @@ salesRouter.post("/", (req, res) => {
   }
 });
 
-salesRouter.post("/:id/refund", requireRole("owner", "manager"), (req, res) => {
+salesRouter.post("/:id/refund", requireRole("owner", "manager"), async (req, res) => {
   let refundedSale;
-  mutateData((draft) => {
+  await mutateData((draft) => {
     const sale = draft.sales.find((item) => item.id === req.params.id && item.businessId === req.businessId);
     if (!sale || sale.status === "refunded") return;
     const lines = draft.saleItems.filter((item) => item.saleId === sale.id);

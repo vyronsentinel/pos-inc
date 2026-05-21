@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 export const syncRouter = express.Router();
 syncRouter.use(requireAuth);
 
-syncRouter.post("/", (req, res) => {
+syncRouter.post("/", async (req, res) => {
   const parsed = z.object({
     events: z.array(z.object({
       type: z.string(),
@@ -15,7 +15,7 @@ syncRouter.post("/", (req, res) => {
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-  mutateData((draft) => {
+  await mutateData((draft) => {
     for (const event of parsed.data.events) {
       draft.syncEvents.push({
         id: randomId("syn"),

@@ -21,11 +21,11 @@ const loginSchema = z.object({
   password: z.string().min(1)
 });
 
-authRouter.post("/register", (req, res) => {
+authRouter.post("/register", async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
   const input = parsed.data;
-  const data = readData();
+  const data = await readData();
   if (data.users.some((user) => user.email === input.email)) {
     return res.status(409).json({ error: "Email already registered" });
   }
@@ -34,7 +34,7 @@ authRouter.post("/register", (req, res) => {
   const businessId = randomId("biz");
   const userId = randomId("usr");
 
-  mutateData((draft) => {
+  await mutateData((draft) => {
     draft.businesses.push({
       id: businessId,
       name: input.businessName,
@@ -75,10 +75,10 @@ authRouter.post("/register", (req, res) => {
   });
 });
 
-authRouter.post("/login", (req, res) => {
+authRouter.post("/login", async (req, res) => {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const data = readData();
+  const data = await readData();
   const user = data.users.find((item) => item.email === parsed.data.email && item.active);
   if (!user || !bcrypt.compareSync(parsed.data.password, user.passwordHash)) {
     return res.status(401).json({ error: "Invalid email or password" });

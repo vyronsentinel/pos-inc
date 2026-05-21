@@ -89,8 +89,8 @@ paypalRouter.post("/create-subscription", requireAuth, async (req, res) => {
   }
 });
 
-paypalRouter.post("/mock-activate", requireAuth, (req, res) => {
-  mutateData((draft) => {
+paypalRouter.post("/mock-activate", requireAuth, async (req, res) => {
+  await mutateData((draft) => {
     const business = draft.businesses.find((item) => item.id === req.businessId);
     if (business) Object.assign(business, { subscriptionStatus: "active", updatedAt: nowIso() });
   });
@@ -105,7 +105,7 @@ paypalRouter.post("/webhook", express.json({ type: "*/*" }), async (req, res) =>
   if (["BILLING.SUBSCRIPTION.ACTIVATED", "PAYMENT.SALE.COMPLETED"].includes(eventType)) {
     const businessId = resource?.custom_id;
     if (businessId) {
-      mutateData((draft) => {
+      await mutateData((draft) => {
         const business = draft.businesses.find((item) => item.id === businessId);
         if (business) Object.assign(business, { subscriptionStatus: "active", updatedAt: nowIso() });
       });
@@ -115,7 +115,7 @@ paypalRouter.post("/webhook", express.json({ type: "*/*" }), async (req, res) =>
   if (["BILLING.SUBSCRIPTION.CANCELLED", "BILLING.SUBSCRIPTION.SUSPENDED"].includes(eventType)) {
     const businessId = resource?.custom_id;
     if (businessId) {
-      mutateData((draft) => {
+      await mutateData((draft) => {
         const business = draft.businesses.find((item) => item.id === businessId);
         if (business) Object.assign(business, { subscriptionStatus: "canceled", updatedAt: nowIso() });
       });

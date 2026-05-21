@@ -41,7 +41,14 @@ Useful endpoints:
 - `POST /api/paypal/checkout-link`
 - `POST /api/paypal/create-subscription`
 
-The development backend stores data in `backend/data/pos-inc.json`. Use Postgres before hosted production.
+The backend stores data in `backend/data/pos-inc.json` by default for local development. For Supabase, set `DATABASE_URL` on the backend service to the Supabase Postgres URI:
+
+```env
+DATABASE_URL=postgresql://postgres:[YOUR-PASSWORD]@db.rmpjjfuyjpfuwwhivedx.supabase.co:5432/postgres
+DATABASE_SSL=true
+```
+
+You can find the URI in Supabase under Project Settings > Database > Connection string > URI. The backend creates the required tables on startup.
 
 Current subscription pricing:
 
