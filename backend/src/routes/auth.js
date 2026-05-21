@@ -151,7 +151,7 @@ authRouter.post("/forgot-password", async (req, res) => {
     expiresAt.setHours(expiresAt.getHours() + 1);
 
     await mutateData((draft) => {
-      draft.passwordResetTokens = (draft.passwordResetTokens || []).filter((item) => item.userId !== user.id || item.usedAt);
+      draft.passwordResetTokens = draft.passwordResetTokens || [];
       draft.passwordResetTokens.push({
         id: randomId("prt"),
         userId: user.id,
@@ -180,7 +180,7 @@ authRouter.post("/forgot-password", async (req, res) => {
 authRouter.post("/reset-password", async (req, res) => {
   const parsed = resetPasswordSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
-  const tokenHash = hashToken(parsed.data.token);
+  const tokenHash = hashToken(parsed.data.token.trim());
   const now = new Date();
   let updatedUser;
 

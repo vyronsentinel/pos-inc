@@ -133,7 +133,6 @@ async function forgotPassword(input: any) {
     const now = nowIso();
     const expires = new Date();
     expires.setHours(expires.getHours() + 1);
-    await supabase.from("password_reset_tokens").delete().eq("user_id", user.id).is("used_at", null);
     await insert("password_reset_tokens", {
       id: randomId("prt"),
       user_id: user.id,
@@ -151,7 +150,7 @@ async function forgotPassword(input: any) {
 async function resetPassword(input: any) {
   requireFields(input, ["token", "password"]);
   if (input.password.length < 8) throw httpError("Password must be at least 8 characters", 400);
-  const tokenHash = await sha256(input.token);
+  const tokenHash = await sha256(String(input.token).trim());
   const { data: token } = await supabase.from("password_reset_tokens").select("*").eq("token_hash", tokenHash).is("used_at", null).gt("expires_at", nowIso()).maybeSingle();
   if (!token) throw httpError("Reset link is invalid or expired", 400);
   await update("users", token.user_id, { password_hash: bcrypt.hashSync(input.password, 12), updated_at: nowIso() });
