@@ -39,7 +39,10 @@ const storeKey = "ledgerlane-store";
 const accountKey = "ledgerlane-account";
 const pendingActivationKey = "ledgerlane-pending-activation";
 const authTokenKey = "pos-inc-auth-token";
-const apiUrl = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
+const defaultApiUrl = import.meta.env.PROD
+  ? "https://rmpjjfuyjpfuwwhivedx.supabase.co/functions/v1"
+  : "http://127.0.0.1:4000";
+const apiUrl = (import.meta.env.VITE_API_URL || defaultApiUrl).replace(/\/$/, "");
 
 const licensePlans = {
   POS2026799S: "starter",
@@ -1456,14 +1459,19 @@ function addDays(date, days) {
 }
 
 async function apiRequest(path, { method = "GET", token, body } = {}) {
-  const response = await fetch(`${apiUrl}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {})
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
+  let response;
+  try {
+    response = await fetch(`${apiUrl}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {})
+      },
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch {
+    throw new Error(`Could not reach the API at ${apiUrl}. Check the deployed backend URL and CORS settings.`);
+  }
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(payload.error || "Request failed");
