@@ -382,8 +382,14 @@ function App() {
   async function finishLogin(event) {
     event.preventDefault();
     setAuthFeedback("");
-    if (!loginDraft.email) return flash("Email is required.");
-    if (!loginDraft.password) return flash("Password is required.");
+    if (!loginDraft.email) {
+      setAuthFeedback("Email is required.");
+      return;
+    }
+    if (!loginDraft.password) {
+      setAuthFeedback("Password is required.");
+      return;
+    }
     setIsActivating(true);
 
     try {
@@ -433,7 +439,7 @@ function App() {
       if (error.status === 401 && await recoverLocalLicensedAccount()) {
         return;
       }
-      flash(error.message || "Could not sign in.");
+      setAuthFeedback(error.status === 401 ? "Incorrect email or password." : error.message || "Could not sign in.");
     } finally {
       setIsActivating(false);
     }
@@ -482,12 +488,29 @@ function App() {
       setResetPasswordDraft({ password: "", confirmPassword: "" });
       window.history.replaceState({}, document.title, window.location.pathname);
       setAuthMode("login");
-      setAuthFeedback("Password updated. Please sign in.");
+      setAuthFeedback("Password updated successfully. Sign in with your new password.");
     } catch (error) {
       setAuthFeedback(error.message || "Could not reset password.");
     } finally {
       setIsActivating(false);
     }
+  }
+
+  function signOut() {
+    localStorage.removeItem(authTokenKey);
+    localStorage.removeItem(accountKey);
+    localStorage.removeItem(pendingActivationKey);
+    setAccount(null);
+    setPendingActivation(null);
+    setAuthMode("login");
+    setAuthFeedback("Signed out successfully.");
+    setLoginDraft({ email: "", password: "" });
+    setForgotPasswordEmail("");
+    setResetToken("");
+    setResetPasswordDraft({ password: "", confirmPassword: "" });
+    setAccountPassword("");
+    setActiveView("checkout");
+    window.history.replaceState({}, document.title, window.location.pathname);
   }
 
   async function recoverLocalLicensedAccount() {
@@ -941,8 +964,14 @@ function App() {
 
           {!pendingActivation && authMode !== "reset" && (
             <div className="mode-toggle">
-              <button type="button" className={authMode === "login" ? "selected" : ""} onClick={() => setAuthMode("login")}>Sign in</button>
-              <button type="button" className={authMode === "register" ? "selected" : ""} onClick={() => setAuthMode("register")}>Create account</button>
+              <button type="button" className={authMode === "login" ? "selected" : ""} onClick={() => {
+                setAuthFeedback("");
+                setAuthMode("login");
+              }}>Sign in</button>
+              <button type="button" className={authMode === "register" ? "selected" : ""} onClick={() => {
+                setAuthFeedback("");
+                setAuthMode("register");
+              }}>Create account</button>
             </div>
           )}
 
@@ -973,11 +1002,16 @@ function App() {
                 <input type="password" autoComplete="current-password" required minLength={1} value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} />
               </label>
               <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Signing in..." : "Sign In"}</button>
+              {authFeedback && <p className="auth-feedback">{authFeedback}</p>}
               <button className="secondary wide" type="button" onClick={() => {
+                setAuthFeedback("");
                 setForgotPasswordEmail(loginDraft.email);
                 setAuthMode("forgot");
               }}>Forgot Password</button>
-              <button className="secondary wide" type="button" onClick={() => setAuthMode("register")}>Create a New Business Account</button>
+              <button className="secondary wide" type="button" onClick={() => {
+                setAuthFeedback("");
+                setAuthMode("register");
+              }}>Create a New Business Account</button>
             </form>
           ) : authMode === "forgot" ? (
             <form className="form-grid" onSubmit={requestPasswordReset}>
@@ -1356,7 +1390,7 @@ function App() {
               </div>
               <div className="license-actions">
                 <button className="primary" onClick={verifyLicense}><ShieldCheck size={17} /> Refresh License</button>
-                <button className="secondary" onClick={() => setAccount(null)}><LogOut size={17} /> Sign Out</button>
+                <button className="secondary" onClick={signOut}><LogOut size={17} /> Sign Out</button>
               </div>
             </section>
             <section className="panel billing-panel">
