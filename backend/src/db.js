@@ -18,7 +18,8 @@ const emptyData = {
   customers: [],
   sales: [],
   saleItems: [],
-  syncEvents: []
+  syncEvents: [],
+  passwordResetTokens: []
 };
 
 const pool = dbUrl
@@ -132,6 +133,15 @@ export async function initDb() {
       payload JSONB NOT NULL,
       created_at TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL
+    );
   `);
   await pool.query("ALTER TABLE businesses ADD COLUMN IF NOT EXISTS license_key TEXT NOT NULL DEFAULT ''");
 }
@@ -139,14 +149,15 @@ export async function initDb() {
 export async function readData() {
   if (!pool) return readJsonData();
 
-  const [businesses, users, products, customers, sales, saleItems, syncEvents] = await Promise.all([
+  const [businesses, users, products, customers, sales, saleItems, syncEvents, passwordResetTokens] = await Promise.all([
     pool.query("SELECT * FROM businesses"),
     pool.query("SELECT * FROM users"),
     pool.query("SELECT * FROM products"),
     pool.query("SELECT * FROM customers"),
     pool.query("SELECT * FROM sales"),
     pool.query("SELECT * FROM sale_items"),
-    pool.query("SELECT * FROM sync_events")
+    pool.query("SELECT * FROM sync_events"),
+    pool.query("SELECT * FROM password_reset_tokens")
   ]);
 
   return {
@@ -156,7 +167,8 @@ export async function readData() {
     customers: customers.rows.map(mapCustomer),
     sales: sales.rows.map(mapSale),
     saleItems: saleItems.rows.map(mapSaleItem),
-    syncEvents: syncEvents.rows.map(mapSyncEvent)
+    syncEvents: syncEvents.rows.map(mapSyncEvent),
+    passwordResetTokens: passwordResetTokens.rows.map(mapPasswordResetToken)
   };
 }
 
@@ -170,6 +182,7 @@ export async function writeData(data) {
   try {
     await client.query("BEGIN");
     await client.query("DELETE FROM sync_events");
+    await client.query("DELETE FROM password_reset_tokens");
     await client.query("DELETE FROM sale_items");
     await client.query("DELETE FROM sales");
     await client.query("DELETE FROM products");
@@ -230,6 +243,14 @@ export async function writeData(data) {
         `INSERT INTO sync_events (id, business_id, user_id, type, payload, created_at)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [event.id, event.businessId, event.userId || null, event.type, JSON.stringify(event.payload), event.createdAt]
+      );
+    }
+
+    for (const token of data.passwordResetTokens || []) {
+      await client.query(
+        `INSERT INTO password_reset_tokens (id, user_id, token_hash, expires_at, used_at, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [token.id, token.userId, token.tokenHash, token.expiresAt, token.usedAt || null, token.createdAt]
       );
     }
 
@@ -366,6 +387,17 @@ function mapSyncEvent(row) {
     userId: row.user_id,
     type: row.type,
     payload: row.payload,
+    createdAt: row.created_at
+  };
+}
+
+function mapPasswordResetToken(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    tokenHash: row.token_hash,
+    expiresAt: row.expires_at,
+    usedAt: row.used_at,
     createdAt: row.created_at
   };
 }

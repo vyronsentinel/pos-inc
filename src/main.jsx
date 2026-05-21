@@ -177,10 +177,13 @@ function App() {
   const [customerDraft, setCustomerDraft] = useState({ name: "", phone: "", email: "" });
   const [accountDraft, setAccountDraft] = useState({ businessName: "", ownerName: "", email: "", plan: "pro" });
   const [loginDraft, setLoginDraft] = useState({ email: "", password: "" });
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState("");
+  const [resetPasswordDraft, setResetPasswordDraft] = useState({ password: "", confirmPassword: "" });
   const [accountPassword, setAccountPassword] = useState("");
   const [licenseKeyDraft, setLicenseKeyDraft] = useState("");
   const [pendingLicenseKeyDraft, setPendingLicenseKeyDraft] = useState("");
   const [authMode, setAuthMode] = useState("login");
+  const [resetToken, setResetToken] = useState("");
   const [isActivating, setIsActivating] = useState(false);
   const [editingProductId, setEditingProductId] = useState("");
   const [productEditDraft, setProductEditDraft] = useState(null);
@@ -211,6 +214,11 @@ function App() {
 
     const params = new URLSearchParams(window.location.search);
     const paypalStatus = params.get("paypal");
+    const passwordResetToken = params.get("resetToken");
+    if (passwordResetToken) {
+      setResetToken(passwordResetToken);
+      setAuthMode("reset");
+    }
     if (paypalStatus === "cancel") {
       flash("PayPal subscription setup was canceled.");
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -421,6 +429,48 @@ function App() {
         return;
       }
       flash(error.message || "Could not sign in.");
+    } finally {
+      setIsActivating(false);
+    }
+  }
+
+  async function requestPasswordReset(event) {
+    event.preventDefault();
+    if (!forgotPasswordEmail) return flash("Email is required.");
+    setIsActivating(true);
+
+    try {
+      await apiRequest("/api/auth/forgot-password", {
+        method: "POST",
+        body: { email: forgotPasswordEmail }
+      });
+      flash("If that email exists, a reset link has been sent.");
+      setAuthMode("login");
+    } catch (error) {
+      flash(error.message || "Could not request password reset.");
+    } finally {
+      setIsActivating(false);
+    }
+  }
+
+  async function finishPasswordReset(event) {
+    event.preventDefault();
+    if (!resetPasswordDraft.password || resetPasswordDraft.password.length < 8) return flash("Password must be at least 8 characters.");
+    if (resetPasswordDraft.password !== resetPasswordDraft.confirmPassword) return flash("Passwords do not match.");
+    setIsActivating(true);
+
+    try {
+      await apiRequest("/api/auth/reset-password", {
+        method: "POST",
+        body: { token: resetToken, password: resetPasswordDraft.password }
+      });
+      setResetToken("");
+      setResetPasswordDraft({ password: "", confirmPassword: "" });
+      window.history.replaceState({}, document.title, window.location.pathname);
+      setAuthMode("login");
+      flash("Password updated. Please sign in.");
+    } catch (error) {
+      flash(error.message || "Could not reset password.");
     } finally {
       setIsActivating(false);
     }
@@ -832,13 +882,6 @@ function App() {
     reader.readAsText(file);
   }
 
-  function resetLocalWorkspace() {
-    if (!window.confirm("Clear this browser's local POS workspace and return to activation?")) return;
-    localStorage.removeItem(storeKey);
-    localStorage.removeItem(accountKey);
-    window.location.reload();
-  }
-
   const nav = [
     ["checkout", ShoppingCart, "Checkout"],
     ["inventory", Boxes, "Inventory"],
@@ -855,10 +898,14 @@ function App() {
           <div className="brand large-brand">
             <img className="brand-logo brand-logo-large" src="/POSlogo-cropped.png" alt="POS inc" />
           </div>
-          <h1>{pendingActivation ? "Waiting for PayPal confirmation" : authMode === "login" ? "Sign in to your workspace" : "Activate a business workspace"}</h1>
+          <h1>{pendingActivation ? "Waiting for PayPal confirmation" : authMode === "forgot" ? "Reset your password" : authMode === "reset" ? "Choose a new password" : authMode === "login" ? "Sign in to your workspace" : "Activate a business workspace"}</h1>
           <p>
             {pendingActivation
               ? "Your business profile was created. Finish the PayPal approval and come back here so we can verify the payment before unlocking the workspace."
+              : authMode === "forgot"
+                ? "Enter your account email and we will send a password reset link."
+              : authMode === "reset"
+                ? "Create a new password for your POS inc account."
               : authMode === "login"
                 ? "Sign in with the email and password you used when the account was created."
                 : "Set up a licensed POS workspace for this business, then open the register with local offline access and plan-based controls."}
@@ -872,13 +919,13 @@ function App() {
         <section className="panel onboarding-card">
           <div className="panel-head">
             <div>
-              <h2>{pendingActivation ? "Payment pending" : authMode === "login" ? "Existing User Login" : "Business Account"}</h2>
-              <p>{pendingActivation ? "Do not refresh PayPal until it has completed." : authMode === "login" ? "Log in with your registered account email and password." : "Create the first register profile for this store."}</p>
+              <h2>{pendingActivation ? "Payment pending" : authMode === "forgot" ? "Forgot Password" : authMode === "reset" ? "Reset Password" : authMode === "login" ? "Existing User Login" : "Business Account"}</h2>
+              <p>{pendingActivation ? "Do not refresh PayPal until it has completed." : authMode === "forgot" ? "A reset link will be sent from no-reply." : authMode === "reset" ? "Enter and confirm your new password." : authMode === "login" ? "Log in with your registered account email and password." : "Create the first register profile for this store."}</p>
             </div>
             {authMode === "login" ? <UserRound size={22} /> : <Building2 size={22} />}
           </div>
 
-          {!pendingActivation && (
+          {!pendingActivation && authMode !== "reset" && (
             <div className="mode-toggle">
               <button type="button" className={authMode === "login" ? "selected" : ""} onClick={() => setAuthMode("login")}>Sign in</button>
               <button type="button" className={authMode === "register" ? "selected" : ""} onClick={() => setAuthMode("register")}>Create account</button>
@@ -912,7 +959,29 @@ function App() {
                 <input type="password" autoComplete="current-password" required minLength={1} value={loginDraft.password} onChange={(event) => setLoginDraft({ ...loginDraft, password: event.target.value })} />
               </label>
               <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Signing in..." : "Sign In"}</button>
+              <button className="secondary wide" type="button" onClick={() => {
+                setForgotPasswordEmail(loginDraft.email);
+                setAuthMode("forgot");
+              }}>Forgot Password</button>
               <button className="secondary wide" type="button" onClick={() => setAuthMode("register")}>Create a New Business Account</button>
+            </form>
+          ) : authMode === "forgot" ? (
+            <form className="form-grid" onSubmit={requestPasswordReset}>
+              <label className="field">Email
+                <input type="email" required autoComplete="email" value={forgotPasswordEmail} onChange={(event) => setForgotPasswordEmail(event.target.value)} />
+              </label>
+              <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Sending..." : "Send Reset Link"}</button>
+              <button className="secondary wide" type="button" onClick={() => setAuthMode("login")}>Back to Sign In</button>
+            </form>
+          ) : authMode === "reset" ? (
+            <form className="form-grid" onSubmit={finishPasswordReset}>
+              <label className="field">New Password
+                <input type="password" required autoComplete="new-password" minLength={8} value={resetPasswordDraft.password} onChange={(event) => setResetPasswordDraft({ ...resetPasswordDraft, password: event.target.value })} />
+              </label>
+              <label className="field">Confirm Password
+                <input type="password" required autoComplete="new-password" minLength={8} value={resetPasswordDraft.confirmPassword} onChange={(event) => setResetPasswordDraft({ ...resetPasswordDraft, confirmPassword: event.target.value })} />
+              </label>
+              <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Saving..." : "Update Password"}</button>
             </form>
           ) : (
             <form className="form-grid" onSubmit={finishOnboarding}>
@@ -1272,7 +1341,6 @@ function App() {
               <div className="license-actions">
                 <button className="primary" onClick={verifyLicense}><ShieldCheck size={17} /> Refresh License</button>
                 <button className="secondary" onClick={() => setAccount(null)}><LogOut size={17} /> Sign Out</button>
-                <button className="secondary" onClick={resetLocalWorkspace}><Trash2 size={17} /> Reset Local Demo</button>
               </div>
             </section>
             <section className="panel billing-panel">
