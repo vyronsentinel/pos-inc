@@ -379,19 +379,89 @@ async function getPayPalAccessToken() {
 }
 
 async function sendWelcomeEmail(to: string, name: string, businessName: string) {
-  return sendBrevoEmail(to, "Welcome to POS inc", `Hello ${name},\n\nYour POS inc account for ${businessName} has been created.`);
+  return sendBrevoEmail({
+    to,
+    subject: "Welcome to POS inc",
+    text: `Hello ${name},\n\nYour POS inc account for ${businessName} has been created.`
+  });
 }
 
 async function sendPasswordResetEmail(to: string, name: string, resetUrl: string) {
-  return sendBrevoEmail(to, "Reset your POS inc password", `Hello ${name},\n\nUse this link to reset your POS inc password:\n${resetUrl}\n\nThis link expires in 1 hour.`);
+  return sendBrevoEmail({
+    to,
+    subject: "Reset your POS inc password",
+    text: `Hello ${name},\n\nUse this link to reset your POS inc password:\n${resetUrl}\n\nThis link expires in 1 hour. If you did not request this, ignore this email.`,
+    html: resetPasswordEmailHtml(name, resetUrl)
+  });
 }
 
-async function sendBrevoEmail(to: string, subject: string, text: string) {
+async function sendBrevoEmail(message: { to: string; subject: string; text: string; html?: string }) {
   const apiKey = Deno.env.get("BREVO_API_KEY");
   const from = parseMailFrom(Deno.env.get("MAIL_FROM") || "POS inc <no-reply@example.com>");
   if (!apiKey) return { sent: false, skipped: true };
-  const response = await fetch("https://api.brevo.com/v3/smtp/email", { method: "POST", headers: { "api-key": apiKey, "Content-Type": "application/json" }, body: JSON.stringify({ sender: from, to: [{ email: to }], subject, textContent: text }) });
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      sender: from,
+      to: [{ email: message.to }],
+      subject: message.subject,
+      textContent: message.text,
+      ...(message.html ? { htmlContent: message.html } : {})
+    })
+  });
   return { sent: response.ok };
+}
+
+function resetPasswordEmailHtml(name: string, resetUrl: string) {
+  const safeName = escapeHtml(name || "there");
+  const safeResetUrl = escapeHtml(resetUrl);
+  return `<!doctype html>
+<html>
+  <body style="margin:0;background:#eef3f4;font-family:Arial,Helvetica,sans-serif;color:#111827;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#eef3f4;padding:28px 12px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border:1px solid #d9e2e4;">
+            <tr>
+              <td align="center" style="background:#063f46;padding:42px 24px 34px;">
+                <div style="font-size:30px;font-weight:700;color:#ffffff;letter-spacing:.2px;">POS inc</div>
+                <div style="margin-top:18px;font-size:22px;font-weight:700;color:#67e8f9;">Reset your password</div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:34px 34px 12px;font-size:15px;line-height:1.65;color:#334155;">
+                <p style="margin:0 0 18px;">Hi ${safeName},</p>
+                <p style="margin:0 0 22px;">We received a request to reset your POS inc password. Use the secure button below to choose a new password.</p>
+                <table role="presentation" cellspacing="0" cellpadding="0" style="margin:0 auto 24px;">
+                  <tr>
+                    <td align="center" style="border-radius:6px;background:#078895;">
+                      <a href="${safeResetUrl}" style="display:inline-block;padding:14px 24px;color:#ffffff;text-decoration:none;font-weight:700;font-size:15px;">Reset Password</a>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:0 0 12px;color:#64748b;">This link expires in 1 hour. If you did not request a reset, you can safely ignore this email.</p>
+                <p style="margin:0;color:#64748b;font-size:13px;">If the button does not work, copy and paste this link into your browser:<br><a href="${safeResetUrl}" style="color:#078895;word-break:break-all;">${safeResetUrl}</a></p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:22px 34px 34px;color:#94a3b8;font-size:12px;text-align:center;">POS inc account security</td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+function escapeHtml(value: string) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
 function normalizePath(pathname: string) {
