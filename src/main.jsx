@@ -114,7 +114,7 @@ function loadStore() {
     ],
     auditLog: [],
     settings: {
-      storeName: "POS inc Demo Store",
+      storeName: "POS inc Store",
       taxRate: 0.0825,
       location: "Main Register",
       cashier: "Owner",
@@ -193,6 +193,7 @@ function App() {
   const [isActivating, setIsActivating] = useState(false);
   const [showLicenseKey, setShowLicenseKey] = useState(false);
   const [showAccountLicenseField, setShowAccountLicenseField] = useState(false);
+  const [activeUserPinDraft, setActiveUserPinDraft] = useState("");
   const [editingProductId, setEditingProductId] = useState("");
   const [productEditDraft, setProductEditDraft] = useState(null);
   const [editingCustomerId, setEditingCustomerId] = useState("");
@@ -856,6 +857,8 @@ function App() {
     event.preventDefault();
     if (!can("users")) return flash("Only owners can manage users.");
     if (!userDraft.name || !userDraft.pin) return flash("User name and PIN are required.");
+    if (!/^\d{4,8}$/.test(userDraft.pin)) return flash("PIN must be 4 to 8 digits.");
+    if (store.users.some((user) => user.pin === userDraft.pin)) return flash("That PIN is already assigned.");
     const user = { id: `u-${Date.now()}`, name: userDraft.name, role: userDraft.role, pin: userDraft.pin, active: true };
     setStore((current) => ({ ...current, users: [...current.users, user] }));
     setUserDraft({ name: "", role: "cashier", pin: "" });
@@ -864,10 +867,29 @@ function App() {
 
   function toggleUser(id) {
     if (!can("users")) return flash("Only owners can manage users.");
+    const target = store.users.find((user) => user.id === id);
+    if (!target) return;
+    if (target.id === store.settings.activeUserId) return flash("Switch to another active user before disabling this one.");
+    if (target.active && target.role === "owner" && store.users.filter((user) => user.active && user.role === "owner").length <= 1) {
+      return flash("At least one active owner is required.");
+    }
     setStore((current) => ({
       ...current,
       users: current.users.map((user) => user.id === id ? { ...user, active: !user.active } : user)
     }));
+    flash(target.active ? "User disabled." : "User enabled.");
+  }
+
+  function switchActiveUser(event) {
+    event.preventDefault();
+    const user = store.users.find((item) => item.active && item.pin === activeUserPinDraft);
+    if (!user) return flash("PIN was not recognized.");
+    setStore((current) => ({
+      ...current,
+      settings: { ...current.settings, activeUserId: user.id, cashier: user.name }
+    }));
+    setActiveUserPinDraft("");
+    flash(`Active user: ${user.name}`);
   }
 
   function exportBackup() {
@@ -1437,16 +1459,21 @@ function App() {
             <section className="panel settings-panel">
               <div className="panel-head"><h2>Store Settings</h2><p>Saved locally for offline use</p></div>
               <div className="settings-grid">
-                {["storeName", "location", "cashier", "receiptFooter", "taxRate"].map((key) => (
+                {["storeName", "location", "receiptFooter", "taxRate"].map((key) => (
                   <label className="field" key={key}>{labelize(key)}
                     <input value={store.settings[key]} type={key === "taxRate" ? "number" : "text"} step="0.0001" onChange={(event) => setStore((current) => ({ ...current, settings: { ...current.settings, [key]: key === "taxRate" ? Number(event.target.value) : event.target.value } }))} />
                   </label>
                 ))}
-                <label className="field">Active User
-                  <select value={store.settings.activeUserId} onChange={(event) => setStore((current) => ({ ...current, settings: { ...current.settings, activeUserId: event.target.value, cashier: current.users.find((user) => user.id === event.target.value)?.name || current.settings.cashier } }))}>
-                    {store.users.filter((user) => user.active).map((user) => <option key={user.id} value={user.id}>{user.name} - {labelize(user.role)}</option>)}
-                  </select>
-                </label>
+                <form className="pin-switcher" onSubmit={switchActiveUser}>
+                  <div>
+                    <strong>{currentUser.name}</strong>
+                    <span>{labelize(currentUser.role)} currently operating this register</span>
+                  </div>
+                  <label className="compact-field">Switch by PIN
+                    <input type="password" inputMode="numeric" autoComplete="off" value={activeUserPinDraft} onChange={(event) => setActiveUserPinDraft(event.target.value.replace(/\D/g, ""))} />
+                  </label>
+                  <button className="secondary" type="submit">Switch User</button>
+                </form>
               </div>
             </section>
 
@@ -1470,8 +1497,8 @@ function App() {
               <div className="user-grid">
                 <div className="user-list">
                   {store.users.map((user) => (
-                    <article className="user-row" key={user.id}>
-                      <div><strong>{user.name}</strong><span>{labelize(user.role)} - PIN {user.pin}</span></div>
+                    <article className={user.active ? "user-row" : "user-row inactive"} key={user.id}>
+                      <div><strong>{user.name}</strong><span>{labelize(user.role)} - PIN {maskPin(user.pin)}{user.id === store.settings.activeUserId ? " - Active" : ""}</span></div>
                       <button className={user.active ? "secondary" : "primary"} onClick={() => toggleUser(user.id)}>{user.active ? "Disable" : "Enable"}</button>
                     </article>
                   ))}
@@ -1488,7 +1515,7 @@ function App() {
                     </select>
                   </label>
                   <label className="field">PIN
-                    <input value={userDraft.pin} onChange={(event) => setUserDraft({ ...userDraft, pin: event.target.value })} />
+                    <input type="password" inputMode="numeric" autoComplete="off" value={userDraft.pin} onChange={(event) => setUserDraft({ ...userDraft, pin: event.target.value.replace(/\D/g, "").slice(0, 8) })} />
                   </label>
                   <button className="primary wide" type="submit">Add User</button>
                 </form>
@@ -1615,6 +1642,10 @@ function maskLicenseKey(value) {
   const text = String(value || "");
   if (text.length <= 4) return "••••";
   return `${"•".repeat(Math.max(4, text.length - 4))}${text.slice(-4)}`;
+}
+
+function maskPin(value) {
+  return "•".repeat(String(value || "").length || 4);
 }
 
 createRoot(document.getElementById("root")).render(<App />);
