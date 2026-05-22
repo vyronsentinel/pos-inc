@@ -175,6 +175,7 @@ function App() {
   const [cart, setCart] = useState([]);
   const [discount, setDiscount] = useState(0);
   const [paymentType, setPaymentType] = useState("Cash");
+  const [lastReceipt, setLastReceipt] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState("c-1");
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [notice, setNotice] = useState("");
@@ -269,6 +270,24 @@ function App() {
   const todaysSales = completedSales.filter((sale) => sale.date.startsWith(todayKey));
   const salesTotal = todaysSales.reduce((sum, sale) => sum + sale.total, 0);
   const lowStock = store.products.filter((product) => product.stock <= product.reorder);
+  const receiptLines = lastReceipt?.lines || cartLines.map((line) => ({
+    productId: line.productId,
+    name: line.product.name,
+    sku: line.product.sku,
+    qty: line.qty,
+    price: line.product.price,
+    lineTotal: line.lineTotal
+  }));
+  const receiptSummary = lastReceipt || {
+    createdAt: new Date().toISOString(),
+    cashierName: currentUser.name,
+    customerName: currentCustomer?.name || "Walk-in Customer",
+    paymentType,
+    subtotal,
+    discount: discountValue,
+    tax,
+    total
+  };
   const license = getLicenseState(account, isOnline);
   const canUseRegister = account && license.canUseRegister;
   const can = (permission) => rolePermissions[currentUser?.role || "cashier"].includes(permission);
@@ -645,6 +664,7 @@ function App() {
   function addToCart(product) {
     if (!canUseRegister) return flash("License needs verification before new sales.");
     if (!can("checkout")) return flash("This user cannot open checkout.");
+    if (lastReceipt) setLastReceipt(null);
     if (product.stock < 1) {
       flash("Item is out of stock.");
       return;
@@ -697,9 +717,25 @@ function App() {
       ),
       sales: [sale, ...current.sales]
     }));
+    setLastReceipt({
+      ...sale,
+      createdAt: sale.date,
+      cashierName: currentUser.name,
+      customerName: currentCustomer?.name || "Walk-in Customer"
+    });
     setCart([]);
     setDiscount(0);
-    flash(`Sale completed: ${money.format(total)}`);
+    flash(`Sale completed: ${money.format(total)}. Print receipt when ready.`);
+  }
+
+  function printReceipt() {
+    if (!receiptLines.length) return flash("Complete a sale before printing a receipt.");
+    window.print();
+  }
+
+  function startNextSale() {
+    setLastReceipt(null);
+    flash("Ready for next sale.");
   }
 
   function addProduct(event) {
@@ -1182,72 +1218,76 @@ function App() {
               <div className="receipt-brand">
                 <strong>{store.settings.storeName}</strong>
                 <span>{store.settings.location}</span>
-                <small>{new Date().toLocaleString()}</small>
+                <small>{new Date(receiptSummary.createdAt).toLocaleString()}</small>
               </div>
               <div className="panel-head compact">
                 <div>
-                  <h2>Current Sale</h2>
-                  <p>{cartLines.length} line items</p>
+                  <h2>{lastReceipt ? "Completed Sale" : "Current Sale"}</h2>
+                  <p>{receiptLines.length} line items</p>
                 </div>
                 <ReceiptText size={22} />
               </div>
               <div className="receipt-meta">
                 <span>Cashier</span>
-                <strong>{currentUser.name}</strong>
+                <strong>{receiptSummary.cashierName}</strong>
                 <span>Customer</span>
-                <strong>{currentCustomer?.name || "Walk-in Customer"}</strong>
+                <strong>{receiptSummary.customerName}</strong>
                 <span>Payment</span>
-                <strong>{paymentType}</strong>
+                <strong>{receiptSummary.paymentType}</strong>
               </div>
               <label className="field customer-picker">
                 Customer
-                <select value={selectedCustomer} onChange={(event) => setSelectedCustomer(event.target.value)}>
+                <select value={selectedCustomer} disabled={Boolean(lastReceipt)} onChange={(event) => setSelectedCustomer(event.target.value)}>
                   {store.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}
                 </select>
               </label>
               <div className="cart-lines">
-                {cartLines.length === 0 && <div className="empty-state">No items added</div>}
-                {cartLines.map((line) => (
+                {receiptLines.length === 0 && <div className="empty-state">No items added</div>}
+                {receiptLines.map((line) => (
                   <div className="cart-line" key={line.productId}>
                     <div>
-                      <strong>{line.product.name}</strong>
-                      <span>{line.product.sku} - {money.format(line.product.price)} each</span>
+                      <strong>{line.name}</strong>
+                      <span>{line.sku} - {money.format(line.price)} each</span>
                     </div>
-                    <div className="qty-control">
+                    {!lastReceipt && <div className="qty-control">
                       <button aria-label="Decrease quantity" onClick={() => changeQty(line.productId, -1)}><Minus size={14} /></button>
                       <b>{line.qty}</b>
                       <button aria-label="Increase quantity" onClick={() => changeQty(line.productId, 1)}><Plus size={14} /></button>
-                    </div>
-                    <span className="print-line-qty">{line.qty} x {money.format(line.product.price)}</span>
+                    </div>}
+                    <span className="print-line-qty">{line.qty} x {money.format(line.price)}</span>
                     <strong>{money.format(line.lineTotal)}</strong>
-                    <button className="icon-danger" aria-label="Remove item" onClick={() => setCart(cart.filter((item) => item.productId !== line.productId))}><Trash2 size={15} /></button>
+                    {!lastReceipt && <button className="icon-danger" aria-label="Remove item" onClick={() => setCart(cart.filter((item) => item.productId !== line.productId))}><Trash2 size={15} /></button>}
                   </div>
                 ))}
               </div>
               <div className="totals">
-                <Row label="Subtotal" value={money.format(subtotal)} />
+                <Row label="Subtotal" value={money.format(receiptSummary.subtotal)} />
                 <label className="discount-row">
                   Discount
-                  <input type="number" min="0" disabled={!can("discount")} value={discount} onChange={(event) => setDiscount(event.target.value)} />
+                  <input type="number" min="0" disabled={!can("discount") || Boolean(lastReceipt)} value={lastReceipt ? receiptSummary.discount : discount} onChange={(event) => setDiscount(event.target.value)} />
                 </label>
-                <Row label="Tax" value={money.format(tax)} />
-                <Row label="Total" value={money.format(total)} strong />
+                <Row label="Tax" value={money.format(receiptSummary.tax)} />
+                <Row label="Total" value={money.format(receiptSummary.total)} strong />
               </div>
               <div className="payment-row">
                 {["Cash", "Card", "Transfer"].map((type) => (
-                  <button className={paymentType === type ? "selected" : ""} key={type} onClick={() => setPaymentType(type)}>
+                  <button className={receiptSummary.paymentType === type ? "selected" : ""} disabled={Boolean(lastReceipt)} key={type} onClick={() => setPaymentType(type)}>
                     {type === "Card" ? <CreditCard size={16} /> : <ReceiptText size={16} />}
                     {type}
                   </button>
                 ))}
               </div>
               <div className="action-row">
-                <button className="secondary" onClick={() => window.print()}><Printer size={17} /> Print</button>
-                <button className="primary" onClick={checkout}><ShieldCheck size={18} /> Complete Sale</button>
+                <button className="secondary" onClick={printReceipt}><Printer size={17} /> {lastReceipt ? "Print Receipt" : "Print Preview"}</button>
+                {lastReceipt ? (
+                  <button className="primary" onClick={startNextSale}><ShoppingCart size={18} /> New Sale</button>
+                ) : (
+                  <button className="primary" onClick={checkout}><ShieldCheck size={18} /> Complete Sale</button>
+                )}
               </div>
               <div className="receipt-footer">
                 <strong>{store.settings.receiptFooter}</strong>
-                <span>Served by {currentUser.name}</span>
+                <span>Served by {receiptSummary.cashierName}</span>
               </div>
             </section>
           </div>
