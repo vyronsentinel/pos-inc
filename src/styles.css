@@ -624,6 +624,16 @@ input:disabled {
   border-color: var(--teal);
 }
 
+.cash-received-field {
+  margin-top: 10px;
+}
+
+.cash-received-field span {
+  color: var(--teal);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
 .plan-picker,
 .plan-list {
   display: grid;

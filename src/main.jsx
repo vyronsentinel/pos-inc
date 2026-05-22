@@ -175,6 +175,7 @@ function App() {
   const [cart, setCart] = useState([]);
   const [discount, setDiscount] = useState(0);
   const [paymentType, setPaymentType] = useState("Cash");
+  const [cashReceived, setCashReceived] = useState("");
   const [lastReceipt, setLastReceipt] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState("c-1");
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -263,6 +264,8 @@ function App() {
   const taxable = Math.max(0, subtotal - discountValue);
   const tax = taxable * store.settings.taxRate;
   const total = taxable + tax;
+  const cashReceivedValue = Number(cashReceived) || 0;
+  const changeDue = paymentType === "Cash" ? Math.max(0, cashReceivedValue - total) : 0;
   const currentUser = store.users.find((user) => user.id === store.settings.activeUserId) || store.users[0];
   const currentCustomer = store.customers.find((customer) => customer.id === selectedCustomer) || store.customers[0];
   const completedSales = store.sales.filter((sale) => sale.status !== "refunded");
@@ -286,7 +289,9 @@ function App() {
     subtotal,
     discount: discountValue,
     tax,
-    total
+    total,
+    cashReceived: paymentType === "Cash" ? cashReceivedValue : 0,
+    changeDue
   };
   const license = getLicenseState(account, isOnline);
   const canUseRegister = account && license.canUseRegister;
@@ -692,6 +697,7 @@ function App() {
     if (!canUseRegister) return flash("License needs verification before checkout.");
     if (!can("checkout")) return flash("This user cannot complete sales.");
     if (!cartLines.length) return flash("Add items before checkout.");
+    if (paymentType === "Cash" && cashReceivedValue < total) return flash("Cash received is less than the sale total.");
     const sale = {
       id: `s-${Date.now()}`,
       date: new Date().toISOString(),
@@ -704,7 +710,9 @@ function App() {
       subtotal,
       discount: discountValue,
       tax,
-      total
+      total,
+      cashReceived: paymentType === "Cash" ? cashReceivedValue : 0,
+      changeDue
     };
     setStore((current) => ({
       ...current,
@@ -725,6 +733,7 @@ function App() {
     });
     setCart([]);
     setDiscount(0);
+    setCashReceived("");
     flash(`Sale completed: ${money.format(total)}. Print receipt when ready.`);
   }
 
@@ -1268,6 +1277,12 @@ function App() {
                 </label>
                 <Row label="Tax" value={money.format(receiptSummary.tax)} />
                 <Row label="Total" value={money.format(receiptSummary.total)} strong />
+                {receiptSummary.paymentType === "Cash" && (
+                  <>
+                    <Row label="Cash Received" value={money.format(receiptSummary.cashReceived)} />
+                    <Row label="Change Due" value={money.format(receiptSummary.changeDue)} strong />
+                  </>
+                )}
               </div>
               <div className="payment-row">
                 {["Cash", "Card", "Transfer"].map((type) => (
@@ -1277,6 +1292,12 @@ function App() {
                   </button>
                 ))}
               </div>
+              {paymentType === "Cash" && !lastReceipt && (
+                <label className="field cash-received-field">Cash Received
+                  <input type="number" min="0" step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="0.00" />
+                  <span>Change due: {money.format(changeDue)}</span>
+                </label>
+              )}
               <div className="action-row">
                 <button className="secondary" onClick={printReceipt}><Printer size={17} /> {lastReceipt ? "Print Receipt" : "Print Preview"}</button>
                 {lastReceipt ? (
