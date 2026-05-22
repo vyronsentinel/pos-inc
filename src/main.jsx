@@ -192,6 +192,7 @@ function App() {
   const [resetToken, setResetToken] = useState("");
   const [isActivating, setIsActivating] = useState(false);
   const [showLicenseKey, setShowLicenseKey] = useState(false);
+  const [showAccountLicenseField, setShowAccountLicenseField] = useState(false);
   const [editingProductId, setEditingProductId] = useState("");
   const [productEditDraft, setProductEditDraft] = useState(null);
   const [editingCustomerId, setEditingCustomerId] = useState("");
@@ -1006,11 +1007,11 @@ function App() {
               </label>
               <button className="primary wide" type="submit" disabled={isActivating}>{isActivating ? "Signing in..." : "Sign In"}</button>
               {authFeedback && <p className="auth-feedback">{authFeedback}</p>}
-              <button className="secondary wide" type="button" onClick={() => {
+              <button className="text-action" type="button" onClick={() => {
                 setAuthFeedback("");
                 setForgotPasswordEmail(loginDraft.email);
                 setAuthMode("forgot");
-              }}>Forgot Password</button>
+              }}>Forgot password?</button>
               <button className="secondary wide" type="button" onClick={() => {
                 setAuthFeedback("");
                 setAuthMode("register");
@@ -1050,9 +1051,13 @@ function App() {
               <label className="field">Password
                 <input type="password" autoComplete="current-password" required minLength={8} value={accountPassword} onChange={(event) => setAccountPassword(event.target.value)} />
               </label>
-              <label className="field">License Key <span>Optional</span>
-                <input autoComplete="off" value={licenseKeyDraft} onChange={(event) => setLicenseKeyDraft(event.target.value.toUpperCase())} />
-              </label>
+              {showAccountLicenseField ? (
+                <label className="field">License Key <span>Optional</span>
+                  <input autoComplete="off" value={licenseKeyDraft} onChange={(event) => setLicenseKeyDraft(event.target.value.toUpperCase())} />
+                </label>
+              ) : (
+                <button className="text-action align-left" type="button" onClick={() => setShowAccountLicenseField(true)}>I have a license key</button>
+              )}
               <div className="plan-picker">
                 {Object.entries(plans).map(([key, plan]) => (
                   <button type="button" className={accountDraft.plan === key ? "plan-option selected" : "plan-option"} key={key} onClick={() => setAccountDraft({ ...accountDraft, plan: key })}>

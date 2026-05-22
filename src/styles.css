@@ -141,6 +141,27 @@ button {
   border-radius: 8px;
 }
 
+.text-action {
+  width: fit-content;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: var(--teal);
+  font-size: 0.86rem;
+  font-weight: 800;
+  padding: 0;
+}
+
+.text-action:hover {
+  color: var(--teal-2);
+  text-decoration: underline;
+}
+
+.text-action.align-left {
+  justify-self: start;
+  margin: 2px 0;
+}
+
 .sidebar {
   background: linear-gradient(180deg, #071831 0%, #0a203e 100%);
   color: #eef8fa;
