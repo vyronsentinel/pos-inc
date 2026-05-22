@@ -41,6 +41,7 @@ const storeKey = "ledgerlane-store";
 const accountKey = "ledgerlane-account";
 const pendingActivationKey = "ledgerlane-pending-activation";
 const authTokenKey = "pos-inc-auth-token";
+const registerDeviceKey = "pos-inc-register-device-id";
 const defaultApiUrl = import.meta.env.PROD
   ? "https://rmpjjfuyjpfuwwhivedx.supabase.co/functions/v1"
   : "http://127.0.0.1:4000";
@@ -196,6 +197,8 @@ function App() {
   const [showLicenseKey, setShowLicenseKey] = useState(false);
   const [showAccountLicenseField, setShowAccountLicenseField] = useState(false);
   const [activeUserPinDraft, setActiveUserPinDraft] = useState("");
+  const [registeredDevices, setRegisteredDevices] = useState([]);
+  const [registerLimit, setRegisterLimit] = useState(0);
   const [editingProductId, setEditingProductId] = useState("");
   const [productEditDraft, setProductEditDraft] = useState(null);
   const [editingCustomerId, setEditingCustomerId] = useState("");
@@ -300,6 +303,12 @@ function App() {
   const license = getLicenseState(account, isOnline);
   const canUseRegister = account && license.canUseRegister;
   const can = (permission) => rolePermissions[currentUser?.role || "cashier"].includes(permission);
+  const currentRegisterDeviceId = localStorage.getItem(registerDeviceKey);
+  const activeRegisteredDevices = registeredDevices.filter((device) => device.active).length;
+
+  useEffect(() => {
+    if (account?.id && activeView === "billing") void loadRegisteredDevices();
+  }, [account?.id, activeView]);
 
   function flash(message) {
     setNotice(message);
@@ -341,6 +350,7 @@ function App() {
         settings: { ...currentStore.settings, storeName: business.name }
       }));
       setPendingActivation(null);
+      await registerCurrentDevice(token, resolvedAccount);
       if (announce) flash("Payment confirmed. Workspace unlocked.");
       window.history.replaceState({}, document.title, window.location.pathname);
     } catch (error) {
@@ -450,7 +460,7 @@ function App() {
         return;
       }
 
-      setAccount({
+      const resolvedAccount = {
         id: business.id,
         businessName: business.name,
         ownerName: current.user.name,
@@ -461,12 +471,14 @@ function App() {
         licenseKey: business.licenseKey || createLicenseKey(business.name),
         lastVerifiedAt: now,
         createdAt: business.createdAt || now
-      });
+      };
+      setAccount(resolvedAccount);
       setStore((currentStore) => ({
         ...currentStore,
         settings: { ...currentStore.settings, storeName: business.name }
       }));
       setPendingActivation(null);
+      await registerCurrentDevice(login.token, resolvedAccount);
       flash("Signed in successfully.");
     } catch (error) {
       if (error.status === 401 && await recoverLocalLicensedAccount()) {
@@ -542,6 +554,8 @@ function App() {
     setResetToken("");
     setResetPasswordDraft({ password: "", confirmPassword: "" });
     setAccountPassword("");
+    setRegisteredDevices([]);
+    setRegisterLimit(0);
     setActiveView("checkout");
     window.history.replaceState({}, document.title, window.location.pathname);
   }
@@ -598,6 +612,69 @@ function App() {
       settings: { ...currentStore.settings, storeName: business.name }
     }));
     setPendingActivation(null);
+    const token = localStorage.getItem(authTokenKey);
+    if (token) void registerCurrentDevice(token, activeAccount);
+  }
+
+  async function registerCurrentDevice(token, baseAccount = account) {
+    if (!token || !baseAccount) return;
+    try {
+      const result = await apiRequest("/api/license/register-device", {
+        method: "POST",
+        token,
+        body: {
+          deviceId: getRegisterDeviceId(),
+          deviceName: `${baseAccount.businessName || "POS inc"} - ${navigator.platform || "Register"}`
+        }
+      });
+      setRegisterLimit(result.registerLimit || 0);
+      setAccount((current) => current ? {
+        ...current,
+        registerAllowed: true,
+        registerDeviceId: result.device?.id || current.registerDeviceId,
+        registerDetail: `${result.activeCount}/${result.registerLimit} registers active`
+      } : current);
+      void loadRegisteredDevices(token);
+    } catch (error) {
+      if (error.status === 409) {
+        setAccount((current) => current ? {
+          ...current,
+          registerAllowed: false,
+          registerDetail: error.message
+        } : current);
+        await loadRegisteredDevices(token).catch(() => {});
+        return;
+      }
+      setAccount((current) => current ? {
+        ...current,
+        registerAllowed: false,
+        registerDetail: error.message || "Could not register this device."
+      } : current);
+    }
+  }
+
+  async function loadRegisteredDevices(token = localStorage.getItem(authTokenKey)) {
+    if (!token) return;
+    const result = await apiRequest("/api/license/devices", { token });
+    setRegisteredDevices(result.devices || []);
+    setRegisterLimit(result.registerLimit || 0);
+  }
+
+  async function deactivateRegisteredDevice(deviceId) {
+    const token = localStorage.getItem(authTokenKey);
+    if (!token) return flash("Please sign in again before managing registers.");
+    try {
+      const result = await apiRequest(`/api/license/devices/${deviceId}`, {
+        method: "PATCH",
+        token,
+        body: { active: false }
+      });
+      setRegisteredDevices((result.devices || registeredDevices).map((device) => device.id === result.device?.id ? result.device : device));
+      await loadRegisteredDevices(token);
+      flash("Register deactivated.");
+    } catch (error) {
+      flash(error.message || "Could not deactivate register.");
+    }
   }
 
   async function activatePendingLicense(event) {
@@ -667,6 +744,8 @@ function App() {
     if (!account) return;
     if (!isOnline) return flash("Connect to the internet to refresh the license.");
     setAccount({ ...account, lastVerifiedAt: new Date().toISOString(), status: account.status === "canceled" ? "active" : account.status });
+    const token = localStorage.getItem(authTokenKey);
+    if (token) void registerCurrentDevice(token, account);
     flash("License refreshed.");
   }
 
@@ -1529,6 +1608,39 @@ function App() {
                 })}
               </div>
             </section>
+            <section className="panel billing-panel billing-devices">
+              <div className="panel-head">
+                <div>
+                  <h2>Registered Registers</h2>
+                  <p>{activeRegisteredDevices}/{registerLimit || plans[account.plan].registers} active on {plans[account.plan].name}</p>
+                </div>
+                <Wifi size={22} />
+              </div>
+              <div className="device-list">
+                {registeredDevices.map((device) => {
+                  const isCurrentDevice = device.deviceId === currentRegisterDeviceId;
+                  return (
+                    <article className={device.active ? "device-row" : "device-row inactive"} key={device.id}>
+                      <div>
+                        <strong>{device.deviceName || "Register"}</strong>
+                        <span>{device.active ? "Active" : "Inactive"} - Last seen {formatDateTime(device.lastSeenAt)}</span>
+                      </div>
+                      {isCurrentDevice ? (
+                        <span className="status-pill">Current</span>
+                      ) : (
+                        <button className="secondary" disabled={!device.active || currentUser.role !== "owner"} onClick={() => deactivateRegisteredDevice(device.id)}>
+                          Deactivate
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+                {!registeredDevices.length && <div className="empty-state">This register will appear here after the license refreshes.</div>}
+              </div>
+              <div className="license-actions">
+                <button className="secondary" onClick={() => loadRegisteredDevices()}><ShieldCheck size={17} /> Refresh Registers</button>
+              </div>
+            </section>
           </div>
         )}
 
@@ -1652,6 +1764,9 @@ function csvCell(value) {
 
 function getLicenseState(account, isOnline) {
   if (!account) return { label: "Inactive", summary: "No license", detail: "Create an account to activate this register.", canUseRegister: false };
+  if (account.registerAllowed === false) {
+    return { label: "Register Limit", summary: "Register not activated", detail: account.registerDetail || "This register is not activated for the current plan.", canUseRegister: false };
+  }
   const now = new Date();
   const lastVerified = new Date(account.lastVerifiedAt);
   const trialEnds = new Date(account.trialEndsAt);
@@ -1724,6 +1839,19 @@ function maskLicenseKey(value) {
 
 function maskPin(value) {
   return "•".repeat(String(value || "").length || 4);
+}
+
+function getRegisterDeviceId() {
+  const existing = localStorage.getItem(registerDeviceKey);
+  if (existing) return existing;
+  const id = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem(registerDeviceKey, id);
+  return id;
+}
+
+function formatDateTime(value) {
+  if (!value) return "never";
+  return new Date(value).toLocaleString();
 }
 
 createRoot(document.getElementById("root")).render(<App />);

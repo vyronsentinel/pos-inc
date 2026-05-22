@@ -25,10 +25,10 @@ const licensePlans: Record<string, string> = {
   POS20262199B: "business"
 };
 
-const plans: Record<string, { features: string[] }> = {
-  starter: { features: ["checkout", "inventory", "offline"] },
-  pro: { features: ["checkout", "inventory", "customers", "reports", "offline", "backup"] },
-  business: { features: ["checkout", "inventory", "customers", "reports", "offline", "backup", "multi-store"] }
+const plans: Record<string, { registers: number; features: string[] }> = {
+  starter: { registers: 1, features: ["checkout", "inventory", "offline"] },
+  pro: { registers: 2, features: ["checkout", "inventory", "customers", "reports", "offline", "backup"] },
+  business: { registers: 5, features: ["checkout", "inventory", "customers", "reports", "offline", "backup", "multi-store"] }
 };
 
 const paypalPlanIds: Record<string, string | undefined> = {
@@ -56,6 +56,9 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && path === "/auth/me") return json({ user: publicUser(auth.user), business: auth.business });
     if (req.method === "POST" && path === "/auth/activate-license") return await activateLicense(auth, body);
     if (req.method === "GET" && path === "/license") return getLicense(auth);
+    if (req.method === "GET" && path === "/license/devices") return await listRegisterDevices(auth);
+    if (req.method === "POST" && path === "/license/register-device") return await registerDevice(auth, body);
+    if (req.method === "PATCH" && path.startsWith("/license/devices/")) return await deactivateRegisterDevice(auth, path.split("/")[3]);
 
     if (path.startsWith("/products")) return await productsRoute(req, path, body, auth);
     if (path.startsWith("/customers")) return await customersRoute(req, path, body, auth);
@@ -170,8 +173,75 @@ function getLicense(auth: any) {
   const plan = plans[auth.business.plan] || plans.pro;
   const active = auth.business.subscriptionStatus === "active" || new Date(auth.business.trialEndsAt) > new Date();
   const expiresAt = addDays(new Date(), active ? 14 : 1).toISOString();
-  const token = jwt.sign({ businessId: auth.business.id, plan: auth.business.plan, status: auth.business.subscriptionStatus, features: plan.features, expiresAt }, licenseSecret, { expiresIn: active ? "14d" : "1d" });
-  return json({ business: auth.business, license: { token, features: plan.features, expiresAt, active } });
+  const token = jwt.sign({ businessId: auth.business.id, plan: auth.business.plan, status: auth.business.subscriptionStatus, features: plan.features, registers: plan.registers, expiresAt }, licenseSecret, { expiresIn: active ? "14d" : "1d" });
+  return json({ business: auth.business, license: { token, features: plan.features, registerLimit: plan.registers, expiresAt, active } });
+}
+
+async function listRegisterDevices(auth: any) {
+  const { data, error } = await supabase
+    .from("register_devices")
+    .select("*")
+    .eq("business_id", auth.business.id)
+    .order("last_seen_at", { ascending: false });
+  if (error) throw error;
+  const plan = plans[auth.business.plan] || plans.pro;
+  const devices = (data || []).map(mapRegisterDevice);
+  return json({ devices, activeCount: devices.filter((device: any) => device.active).length, registerLimit: plan.registers });
+}
+
+async function registerDevice(auth: any, input: any) {
+  const deviceId = String(input?.deviceId || "").trim();
+  if (!deviceId) throw httpError("Device ID is required", 400);
+  const deviceName = String(input?.deviceName || "Register").trim().slice(0, 80) || "Register";
+  const plan = plans[auth.business.plan] || plans.pro;
+  const now = nowIso();
+
+  const { data: existing, error: existingError } = await supabase
+    .from("register_devices")
+    .select("*")
+    .eq("business_id", auth.business.id)
+    .eq("device_id", deviceId)
+    .maybeSingle();
+  if (existingError) throw existingError;
+
+  if (existing) {
+    const device = await update("register_devices", existing.id, { device_name: deviceName, active: true, deactivated_at: null, last_seen_at: now });
+    const activeCount = await countActiveRegisterDevices(auth.business.id);
+    return json({ registered: true, device: mapRegisterDevice(device), activeCount, registerLimit: plan.registers });
+  }
+
+  const activeCount = await countActiveRegisterDevices(auth.business.id);
+  if (activeCount >= plan.registers) {
+    return json({ registered: false, activeCount, registerLimit: plan.registers, error: `This ${planName(auth.business.plan)} plan allows ${plan.registers} register${plan.registers === 1 ? "" : "s"}. Deactivate another register or upgrade the plan.` }, 409);
+  }
+
+  const device = await insert("register_devices", {
+    id: randomId("dev"),
+    business_id: auth.business.id,
+    device_id: deviceId,
+    device_name: deviceName,
+    active: true,
+    first_seen_at: now,
+    last_seen_at: now,
+    deactivated_at: null
+  });
+  return json({ registered: true, device: mapRegisterDevice(device), activeCount: activeCount + 1, registerLimit: plan.registers }, 201);
+}
+
+async function deactivateRegisterDevice(auth: any, id: string) {
+  if (auth.user.role !== "owner") throw httpError("Only owners can manage registered devices", 403);
+  const { data: existing, error } = await supabase
+    .from("register_devices")
+    .select("*")
+    .eq("id", id)
+    .eq("business_id", auth.business.id)
+    .maybeSingle();
+  if (error) throw error;
+  if (!existing) throw httpError("Registered device not found", 404);
+  const device = await update("register_devices", id, { active: false, deactivated_at: nowIso(), last_seen_at: nowIso() });
+  const activeCount = await countActiveRegisterDevices(auth.business.id);
+  const plan = plans[auth.business.plan] || plans.pro;
+  return json({ device: mapRegisterDevice(device), activeCount, registerLimit: plan.registers });
 }
 
 async function productsRoute(req: Request, path: string, body: any, auth: any) {
@@ -498,6 +568,15 @@ async function selectOne(table: string, column: string, value: string) {
   if (error) throw error;
   return data;
 }
+async function countActiveRegisterDevices(businessId: string) {
+  const { count, error } = await supabase
+    .from("register_devices")
+    .select("id", { count: "exact", head: true })
+    .eq("business_id", businessId)
+    .eq("active", true);
+  if (error) throw error;
+  return count || 0;
+}
 async function insert(table: string, payload: any) {
   const { data, error } = await supabase.from(table).insert(payload).select().single();
   if (error) throw error;
@@ -559,6 +638,12 @@ function customerPatch(input: any) {
 }
 function mapBusiness(row: any) {
   return { id: row.id, name: row.name, ownerEmail: row.owner_email, plan: row.plan, subscriptionStatus: row.subscription_status, trialEndsAt: row.trial_ends_at, licenseKey: row.license_key || "", createdAt: row.created_at, updatedAt: row.updated_at };
+}
+function mapRegisterDevice(row: any) {
+  return { id: row.id, businessId: row.business_id, deviceId: row.device_id, deviceName: row.device_name, active: row.active, firstSeenAt: row.first_seen_at, lastSeenAt: row.last_seen_at, deactivatedAt: row.deactivated_at };
+}
+function planName(plan: string) {
+  return plan === "starter" ? "Starter" : plan === "business" ? "Business" : "Pro";
 }
 function mapUser(row: any) {
   return { id: row.id, businessId: row.business_id, name: row.name, email: row.email, passwordHash: row.password_hash, role: row.role, active: row.active, createdAt: row.created_at, updatedAt: row.updated_at };

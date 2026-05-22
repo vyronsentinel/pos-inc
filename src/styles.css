@@ -889,6 +889,10 @@ input:disabled {
   gap: 18px;
 }
 
+.billing-devices {
+  grid-column: 1 / -1;
+}
+
 .settings-stack {
   display: grid;
   gap: 18px;
@@ -951,6 +955,37 @@ input:disabled {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.device-list {
+  display: grid;
+  gap: 10px;
+}
+
+.device-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.device-row.inactive {
+  opacity: 0.68;
+}
+
+.device-row strong,
+.device-row span {
+  display: block;
+}
+
+.device-row span {
+  color: var(--muted);
+  font-size: 0.84rem;
 }
 
 .locked-panel {
@@ -1146,6 +1181,7 @@ input:disabled {
   .license-actions,
   .plan-row,
   .plan-row div:last-child,
+  .device-row,
   .user-grid,
   .user-row {
     display: grid;
