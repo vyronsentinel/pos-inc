@@ -267,7 +267,11 @@ function App() {
   const cashReceivedValue = Number(cashReceived) || 0;
   const changeDue = paymentType === "Cash" ? Math.max(0, cashReceivedValue - total) : 0;
   const currentUser = store.users.find((user) => user.id === store.settings.activeUserId) || store.users[0];
-  const currentCustomer = store.customers.find((customer) => customer.id === selectedCustomer) || store.customers[0];
+  const customerFeatureEnabled = account ? hasFeature(account, "customers") : false;
+  const backupFeatureEnabled = account ? hasFeature(account, "backup") : false;
+  const currentCustomer = customerFeatureEnabled
+    ? store.customers.find((customer) => customer.id === selectedCustomer) || store.customers[0]
+    : store.customers[0];
   const completedSales = store.sales.filter((sale) => sale.status !== "refunded");
   const refundedSales = store.sales.filter((sale) => sale.status === "refunded");
   const todaysSales = completedSales.filter((sale) => sale.date.startsWith(todayKey));
@@ -698,10 +702,11 @@ function App() {
     if (!can("checkout")) return flash("This user cannot complete sales.");
     if (!cartLines.length) return flash("Add items before checkout.");
     if (paymentType === "Cash" && cashReceivedValue < total) return flash("Cash received is less than the sale total.");
+    const saleCustomerId = customerFeatureEnabled ? selectedCustomer : "c-1";
     const sale = {
       id: `s-${Date.now()}`,
       date: new Date().toISOString(),
-      customerId: selectedCustomer,
+      customerId: saleCustomerId,
       cashier: currentUser.name,
       cashierId: currentUser.id,
       paymentType,
@@ -721,7 +726,7 @@ function App() {
         return line ? { ...product, stock: product.stock - line.qty } : product;
       }),
       customers: current.customers.map((customer) =>
-        customer.id === selectedCustomer ? { ...customer, visits: customer.visits + 1, total: customer.total + total } : customer
+        customer.id === saleCustomerId ? { ...customer, visits: customer.visits + 1, total: customer.total + total } : customer
       ),
       sales: [sale, ...current.sales]
     }));
@@ -939,6 +944,7 @@ function App() {
 
   function exportBackup() {
     if (!can("backup")) return flash("This user cannot export backups.");
+    if (!backupFeatureEnabled) return flash("Backup and restore require Pro or Business.");
     const payload = {
       app: "POS inc",
       version: 1,
@@ -971,6 +977,10 @@ function App() {
   }
 
   function importBackup(event) {
+    if (!backupFeatureEnabled) {
+      event.target.value = "";
+      return flash("Backup and restore require Pro or Business.");
+    }
     const file = event.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -1244,12 +1254,19 @@ function App() {
                 <span>Payment</span>
                 <strong>{receiptSummary.paymentType}</strong>
               </div>
-              <label className="field customer-picker">
-                Customer
-                <select value={selectedCustomer} disabled={Boolean(lastReceipt)} onChange={(event) => setSelectedCustomer(event.target.value)}>
-                  {store.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}
-                </select>
-              </label>
+              {customerFeatureEnabled ? (
+                <label className="field customer-picker">
+                  Customer
+                  <select value={selectedCustomer} disabled={Boolean(lastReceipt)} onChange={(event) => setSelectedCustomer(event.target.value)}>
+                    {store.customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <div className="feature-note customer-picker">
+                  <Lock size={15} />
+                  <span>Customer tracking is available on Pro and Business plans.</span>
+                </div>
+              )}
               <div className="cart-lines">
                 {receiptLines.length === 0 && <div className="empty-state">No items added</div>}
                 {receiptLines.map((line) => (
@@ -1540,12 +1557,12 @@ function App() {
 
             <section className="panel settings-panel">
               <div className="panel-head">
-                <div><h2>Backup & Restore</h2><p>Move a store between computers or keep a local safety copy</p></div>
+                <div><h2>Backup & Restore</h2><p>{backupFeatureEnabled ? "Move a store between computers or keep a local safety copy" : "Available on Pro and Business plans"}</p></div>
                 <Download size={22} />
               </div>
               <div className="license-actions">
-                <button className="primary" onClick={exportBackup}><Download size={17} /> Export Backup</button>
-                <button className="secondary" onClick={() => document.getElementById("backup-file").click()}><Upload size={17} /> Restore Backup</button>
+                <button className="primary" disabled={!backupFeatureEnabled} onClick={exportBackup}><Download size={17} /> Export Backup</button>
+                <button className="secondary" disabled={!backupFeatureEnabled} onClick={() => document.getElementById("backup-file").click()}><Upload size={17} /> Restore Backup</button>
                 <input id="backup-file" className="hidden-file" type="file" accept="application/json" onChange={importBackup} />
               </div>
             </section>
